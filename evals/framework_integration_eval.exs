@@ -1,7 +1,7 @@
-defmodule FrameworkIntegrationTest do
+defmodule FrameworkIntegrationEval do
   @moduledoc """
   Integration test for the ExEval framework.
-  
+
   This module tests the end-to-end functionality of ExEval using the mock adapter
   to ensure the framework correctly:
   - Processes evaluation datasets
@@ -9,7 +9,7 @@ defmodule FrameworkIntegrationTest do
   - Invokes the adapter for judging
   - Reports results properly
   """
-  
+
   use ExEval.Dataset,
     response_fn: &FrameworkIntegrationTest.test_response/1,
     adapter: ExEval.Adapters.Mock,
@@ -25,7 +25,7 @@ defmodule FrameworkIntegrationTest do
       _ -> "default response"
     end
   end
-  
+
   eval_dataset [
     %{
       input: "simple_input",
