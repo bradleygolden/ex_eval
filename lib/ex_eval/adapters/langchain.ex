@@ -74,7 +74,12 @@ defmodule ExEval.Adapters.LangChain do
       if config[:api_key] do
         Map.put(base_config, :api_key, config[:api_key])
       else
-        base_config
+        api_key = get_api_key_from_env(chat_model_module)
+        if api_key do
+          Map.put(base_config, :api_key, api_key)
+        else
+          base_config
+        end
       end
 
     model_config =
@@ -129,6 +134,19 @@ defmodule ExEval.Adapters.LangChain do
 
       _ ->
         raise "Unexpected chain structure"
+    end
+  end
+
+  defp get_api_key_from_env(chat_model_module) do
+    case chat_model_module do
+      LangChain.ChatModels.ChatOpenAI ->
+        System.get_env("OPENAI_API_KEY")
+
+      LangChain.ChatModels.ChatAnthropic ->
+        System.get_env("ANTHROPIC_API_KEY")
+
+      _ ->
+        nil
     end
   end
 end
