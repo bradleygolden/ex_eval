@@ -13,7 +13,6 @@ defmodule ExEval.MixProject do
         test: :test,
         "ai.eval": :eval
       ],
-
       name: "ExEval",
       description:
         "Dataset-oriented evaluation framework for AI/LLM applications using LLM-as-judge pattern"
@@ -29,7 +28,6 @@ defmodule ExEval.MixProject do
   defp deps do
     [
       {:langchain, "~> 0.3.0", optional: true},
-
       {:jason, "~> 1.4"}
     ]
   end

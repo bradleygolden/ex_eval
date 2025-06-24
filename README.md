@@ -296,6 +296,67 @@ defmodule MyApp.CustomAdapter do
 end
 ```
 
+## Extending with Custom Dataset Providers
+
+ExEval is designed to be extensible. While the default module-based approach works well for most cases, you can create custom dataset providers to load evaluation cases from different sources like databases, files, or external APIs.
+
+### Creating a Dataset Provider
+
+To create a new dataset provider, implement the `ExEval.DatasetProvider` behaviour:
+
+```elixir
+defmodule ExEval.DatasetProvider.Ecto do
+  @behaviour ExEval.DatasetProvider
+  
+  @impl ExEval.DatasetProvider
+  def load(opts) do
+    repo = Keyword.fetch!(opts, :repo)
+    query = Keyword.fetch!(opts, :query)
+    response_fn = Keyword.fetch!(opts, :response_fn)
+    
+    %{
+      cases: repo.all(query),
+      response_fn: response_fn,
+      adapter: Keyword.get(opts, :adapter),
+      config: Keyword.get(opts, :config, %{}),
+      setup_fn: Keyword.get(opts, :setup_fn),
+      metadata: %{source: :ecto}
+    }
+  end
+end
+```
+
+### Required Fields
+
+Your `load/1` function must return a map with:
+- `:cases` - Enumerable of evaluation cases (maps with `:input` and `:judge_prompt`)
+- `:response_fn` - Function that generates responses to evaluate
+
+### Optional Fields
+
+- `:adapter` - Adapter module for the LLM judge
+- `:config` - Configuration for the adapter
+- `:setup_fn` - Function to run before evaluation
+- `:metadata` - Any metadata about the dataset
+
+### Using Custom Providers
+
+Once implemented, your provider can be used with the runner:
+
+```elixir
+# Direct usage
+dataset = ExEval.DatasetProvider.Ecto.load(
+  repo: MyApp.Repo,
+  query: from(e in EvalCase),
+  response_fn: &MyApp.AI.respond/1
+)
+
+ExEval.Runner.run([dataset])
+
+# Mixed with module-based datasets
+ExEval.Runner.run([MyModuleEval, dataset])
+```
+
 ## License
 
 MIT

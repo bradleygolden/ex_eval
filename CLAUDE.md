@@ -44,24 +44,26 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
 
 ### Core Components
 
-1. **ExEval.Dataset** - Macro system that transforms evaluation modules into executable test suites. Modules using this macro define:
+1. **ExEval.DatasetProvider** - Behaviour for dataset providers that load evaluation cases from various sources
+
+2. **ExEval.DatasetProvider.Module** - Module-based dataset provider with macro DSL implementation.
    - `response_fn` - Function that generates AI responses to evaluate
    - `eval_dataset` - List of evaluation cases with inputs and judge prompts
    - Optional `dataset_setup` - Context setup for evaluations
    - Optional `adapter` and `config` - Custom adapter configuration
 
-2. **ExEval.Judge** - Orchestrates the evaluation process by:
+3. **ExEval.Judge** - Orchestrates the evaluation process by:
    - Building prompts that combine criteria and responses
    - Calling the configured adapter (LLM) to judge responses
    - Parsing YES/NO judgments with reasoning
 
-3. **ExEval.Runner** - Executes evaluation suites with:
+4. **ExEval.Runner** - Executes evaluation suites with:
    - Parallel execution support (configurable concurrency)
    - Multi-turn conversation handling
    - Category filtering
    - Progress reporting via ConsoleReporter
 
-4. **Adapter System** - Pluggable LLM provider interface:
+5. **Adapter System** - Pluggable LLM provider interface:
    - `ExEval.Adapter` behavior defines the contract
    - `ExEval.Adapters.LangChain` - Default OpenAI adapter
    - Mock adapter in `evals/support/adapters/mock.ex` for testing
@@ -89,7 +91,8 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
 When extending ExEval:
 
 1. **New Adapters**: Implement the `ExEval.Adapter` behavior with a `call/2` function
-2. **New Evaluation Options**: Update both `ExEval.Dataset` macro and `ExEval.Runner` to handle new options
+2. **New Dataset Providers**: Implement the `ExEval.DatasetProvider` behaviour with a `load/1` function
+3. **New Evaluation Options**: Update both `ExEval.DatasetProvider.Module` macro and `ExEval.Runner` to handle new options
 3. **New Reporters**: Create modules following the ConsoleReporter pattern with `print_header/1` and `print_summary/1`
 
 ### Testing Strategy

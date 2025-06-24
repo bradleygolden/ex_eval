@@ -28,9 +28,11 @@ defmodule ExEval.Runner do
   - `:categories` - Filter by specific categories
   - `:reporter` - Module to handle result reporting
   """
-  def run(modules, opts \\ []) when is_list(modules) do
+  def run(items, opts \\ []) when is_list(items) do
+    datasets = Enum.map(items, &normalize_to_dataset/1)
+
     runner = %__MODULE__{
-      modules: modules,
+      modules: datasets,
       options: Keyword.merge(default_options(), opts),
       started_at: DateTime.utc_now()
     }
@@ -64,112 +66,116 @@ defmodule ExEval.Runner do
     ]
   end
 
+  defp normalize_to_dataset(%{cases: _, response_fn: _} = dataset) do
+    dataset
+  end
+
+  defp normalize_to_dataset(module) when is_atom(module) do
+    ExEval.DatasetProvider.Module.load(module: module)
+  end
+
   defp run_parallel(runner) do
     runner.modules
-    |> Enum.flat_map(fn module ->
-      if function_exported?(module, :__ex_eval_eval_cases__, 0) do
-        context =
-          if function_exported?(module, :__ex_eval_setup__, 0) do
-            module.__ex_eval_setup__()
-          else
-            %{}
-          end
-
-        eval_cases = module.__ex_eval_eval_cases__()
-        response_fn = module.__ex_eval_response_fn__()
-
-        if runner.options[:trace] do
-          IO.puts("\n\n#{inspect(module)}")
+    |> Enum.flat_map(fn dataset ->
+      context =
+        if dataset.setup_fn do
+          dataset.setup_fn.()
+        else
+          %{}
         end
 
-        module_cases =
-          eval_cases
-          |> filter_by_categories(runner.options[:categories])
-          |> Enum.map(fn eval_case ->
-            {module, eval_case, response_fn, context, runner}
-          end)
+      eval_cases = dataset.cases
+      response_fn = dataset.response_fn
 
-        module_cases
-        |> Task.async_stream(
-          fn {module, eval_case, response_fn, context, runner} ->
-            Process.put(:eval_context, context)
-            result = run_eval_case(eval_case, response_fn, module, runner)
-            
-            if reporter = runner.options[:reporter] do
-              reporter.print_result(result, runner.options)
-            end
-            
-            result
-          end,
-          max_concurrency: runner.options[:max_concurrency],
-          timeout: runner.options[:timeout]
-        )
-        |> Enum.map(fn
-          {:ok, result} ->
-            result
-
-          {:exit, {:timeout, _}} ->
-            result = %{
-              status: :error,
-              error: "Evaluation timed out after #{runner.options[:timeout]}ms",
-              module: module
-            }
-            
-            if reporter = runner.options[:reporter] do
-              reporter.print_result(result, runner.options)
-            end
-            
-            result
-
-          {:exit, reason} ->
-            result = %{status: :error, error: "Evaluation crashed: #{inspect(reason)}", module: module}
-            
-            if reporter = runner.options[:reporter] do
-              reporter.print_result(result, runner.options)
-            end
-            
-            result
-        end)
-      else
-        []
+      if runner.options[:trace] do
+        IO.puts("\n\n#{inspect(dataset)}")
       end
+
+      dataset_cases =
+        eval_cases
+        |> filter_by_categories(runner.options[:categories])
+        |> Enum.map(fn eval_case ->
+          {dataset, eval_case, response_fn, context, runner}
+        end)
+
+      dataset_cases
+      |> Task.async_stream(
+        fn {dataset, eval_case, response_fn, context, runner} ->
+          Process.put(:eval_context, context)
+          result = run_eval_case(eval_case, response_fn, dataset, runner)
+
+          if reporter = runner.options[:reporter] do
+            reporter.print_result(result, runner.options)
+          end
+
+          result
+        end,
+        max_concurrency: runner.options[:max_concurrency],
+        timeout: runner.options[:timeout]
+      )
+      |> Enum.map(fn
+        {:ok, result} ->
+          result
+
+        {:exit, {:timeout, _}} ->
+          result = %{
+            status: :error,
+            error: "Evaluation timed out after #{runner.options[:timeout]}ms",
+            dataset: dataset
+          }
+
+          if reporter = runner.options[:reporter] do
+            reporter.print_result(result, runner.options)
+          end
+
+          result
+
+        {:exit, reason} ->
+          result = %{
+            status: :error,
+            error: "Evaluation crashed: #{inspect(reason)}",
+            dataset: dataset
+          }
+
+          if reporter = runner.options[:reporter] do
+            reporter.print_result(result, runner.options)
+          end
+
+          result
+      end)
     end)
   end
 
   defp run_sequential(runner) do
     runner.modules
-    |> Enum.flat_map(fn module ->
-      if function_exported?(module, :__ex_eval_eval_cases__, 0) do
-        context =
-          if function_exported?(module, :__ex_eval_setup__, 0) do
-            module.__ex_eval_setup__()
-          else
-            %{}
-          end
-
-        Process.put(:eval_context, context)
-
-        eval_cases = module.__ex_eval_eval_cases__()
-        response_fn = module.__ex_eval_response_fn__()
-
-        if runner.options[:trace] do
-          IO.puts("\n\n#{inspect(module)}")
+    |> Enum.flat_map(fn dataset ->
+      context =
+        if dataset.setup_fn do
+          dataset.setup_fn.()
+        else
+          %{}
         end
 
-        eval_cases
-        |> filter_by_categories(runner.options[:categories])
-        |> Enum.map(fn eval_case ->
-          result = run_eval_case(eval_case, response_fn, module, runner)
-          
-          if reporter = runner.options[:reporter] do
-            reporter.print_result(result, runner.options)
-          end
-          
-          result
-        end)
-      else
-        []
+      Process.put(:eval_context, context)
+
+      eval_cases = dataset.cases
+      response_fn = dataset.response_fn
+
+      if runner.options[:trace] do
+        IO.puts("\n\n#{inspect(dataset)}")
       end
+
+      eval_cases
+      |> filter_by_categories(runner.options[:categories])
+      |> Enum.map(fn eval_case ->
+        result = run_eval_case(eval_case, response_fn, dataset, runner)
+
+        if reporter = runner.options[:reporter] do
+          reporter.print_result(result, runner.options)
+        end
+
+        result
+      end)
     end)
   end
 
@@ -182,7 +188,7 @@ defmodule ExEval.Runner do
     end)
   end
 
-  defp run_eval_case(eval_case, response_fn, module, _runner) do
+  defp run_eval_case(eval_case, response_fn, dataset, _runner) do
     start_time = System.monotonic_time(:millisecond)
 
     result =
@@ -216,19 +222,8 @@ defmodule ExEval.Runner do
                       __STACKTRACE__
           end
 
-        adapter =
-          if function_exported?(module, :__ex_eval_adapter__, 0) do
-            module.__ex_eval_adapter__()
-          else
-            ExEval.Adapters.LangChain
-          end
-
-        config =
-          if function_exported?(module, :__ex_eval_config__, 0) do
-            module.__ex_eval_config__()
-          else
-            %{}
-          end
+        adapter = Map.get(dataset, :adapter) || ExEval.Adapters.LangChain
+        config = Map.get(dataset, :config) || %{}
 
         judge_result =
           ExEval.Judge.evaluate(
@@ -269,13 +264,17 @@ defmodule ExEval.Runner do
     end_time = System.monotonic_time(:millisecond)
 
     Map.merge(result, %{
-      module: module,
+      dataset: dataset,
+      module: get_module_from_dataset(dataset),
       category: Map.get(eval_case, :category),
       input: eval_case.input,
       judge_prompt: eval_case.judge_prompt,
       duration_ms: end_time - start_time
     })
   end
+
+  defp get_module_from_dataset(%{metadata: %{module: module}}), do: module
+  defp get_module_from_dataset(_), do: nil
 
   defp apply_response_fn(response_fn, input) do
     try do

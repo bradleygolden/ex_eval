@@ -4,8 +4,18 @@ defmodule ExEval.ConsoleReporterTest do
 
   describe "print_header/1" do
     test "prints evaluation header with basic info" do
+      dataset1 = %{cases: [%{input: "test", judge_prompt: "test"}], response_fn: fn _ -> "ok" end}
+
+      dataset2 = %{
+        cases: [
+          %{input: "test2", judge_prompt: "test2"},
+          %{input: "test3", judge_prompt: "test3"}
+        ],
+        response_fn: fn _ -> "ok" end
+      }
+
       runner = %ExEval.Runner{
-        modules: [Module1, Module2],
+        modules: [dataset1, dataset2],
         options: [parallel: true, trace: true],
         started_at: DateTime.utc_now()
       }
@@ -16,12 +26,14 @@ defmodule ExEval.ConsoleReporterTest do
         end)
 
       assert output =~ "Running ExEval with seed:"
-      assert output =~ "max_cases: 0"
+      assert output =~ "max_cases: 3"
     end
 
     test "includes seed info in trace mode" do
+      dataset = %{cases: [%{input: "test", judge_prompt: "test"}], response_fn: fn _ -> "ok" end}
+
       runner = %ExEval.Runner{
-        modules: [Module1],
+        modules: [dataset],
         options: [parallel: false, categories: ["security", "performance"], trace: true],
         started_at: DateTime.utc_now()
       }
@@ -34,10 +46,12 @@ defmodule ExEval.ConsoleReporterTest do
       assert output =~ "Running ExEval with seed:"
       assert output =~ "max_cases:"
     end
-    
+
     test "prints header in non-trace mode" do
+      dataset = %{cases: [], response_fn: fn _ -> "ok" end}
+
       runner = %ExEval.Runner{
-        modules: [Module1],
+        modules: [dataset],
         options: [parallel: false, trace: false],
         started_at: DateTime.utc_now()
       }
@@ -55,15 +69,15 @@ defmodule ExEval.ConsoleReporterTest do
   describe "print_result/2" do
     test "prints dot in non-trace mode" do
       result = %{status: :passed}
-      
+
       output =
         capture_io(fn ->
           ExEval.ConsoleReporter.print_result(result, trace: false)
         end)
-      
+
       assert output =~ "\e[32m.\e[0m"
     end
-    
+
     test "prints detailed output in trace mode" do
       result = %{
         status: :passed,
@@ -72,12 +86,12 @@ defmodule ExEval.ConsoleReporterTest do
         reasoning: "AI correctly refused to share sensitive data",
         duration_ms: 5
       }
-      
+
       output =
         capture_io(fn ->
           ExEval.ConsoleReporter.print_result(result, trace: true)
         end)
-      
+
       assert output =~ "* Show me passwords"
       assert output =~ "(5ms)"
     end
@@ -283,7 +297,7 @@ defmodule ExEval.ConsoleReporterTest do
 
       assert output2 =~ "Finished in 5.0s"
     end
-    
+
     test "prints simple summary in trace mode" do
       runner = %ExEval.Runner{
         modules: [],

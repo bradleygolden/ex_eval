@@ -75,6 +75,7 @@ defmodule ExEval.Adapters.LangChain do
         Map.put(base_config, :api_key, config[:api_key])
       else
         api_key = get_api_key_from_env(chat_model_module)
+
         if api_key do
           Map.put(base_config, :api_key, api_key)
         else
