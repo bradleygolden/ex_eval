@@ -22,8 +22,8 @@ defmodule ExEval do
       iex> ExEval.new(adapter: ExEval.Adapters.LangChain)
       %ExEval{adapter: ExEval.Adapters.LangChain, config: %{}}
       
-      iex> ExEval.new(adapter: ExEval.Adapters.LangChain, config: %{model: "gpt-4"})
-      %ExEval{adapter: ExEval.Adapters.LangChain, config: %{model: "gpt-4"}}
+      iex> ExEval.new(adapter: ExEval.Adapters.LangChain, config: %{model: "gpt-4.1-mini"})
+      %ExEval{adapter: ExEval.Adapters.LangChain, config: %{model: "gpt-4.1-mini"}}
   """
   def new(opts) do
     adapter = Keyword.fetch!(opts, :adapter)

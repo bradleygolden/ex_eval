@@ -48,7 +48,7 @@ end
 config :ex_eval,
   adapter: ExEval.Adapters.LangChain,
   adapter_config: %{
-    model: "gpt-4o-mini",
+    model: "gpt-4.1-mini",
     temperature: 0.1
   }
 ```
@@ -151,3 +151,60 @@ end
 3. Verify response function returns strings
 4. Ensure judge prompts are YES/NO answerable
 5. Use mock adapter for isolated testing
+
+## Code Review
+
+### Using the Review Binary
+
+ExEval includes a Claude-powered review tool accessible via mise:
+
+```bash
+# Basic review
+review
+
+# Custom context review
+review "Focus on specific aspects like security"
+```
+
+### Review Checks
+
+The review tool automatically:
+- Validates code formatting
+- Runs full test suite
+- Checks for compilation warnings
+- Finds debugging statements in production code
+- Identifies TODO/FIXME comments
+- Verifies evaluations execute properly
+- Reviews code quality and patterns
+- Validates documentation generation
+
+### Claude Code Slash Command
+
+Within Claude Code sessions:
+```
+/project:review
+/project:review Check for performance issues
+```
+
+## Architecture Notes
+
+### DatasetProvider Pattern
+
+ExEval uses a provider pattern for extensibility:
+- `ExEval.DatasetProvider` - Behaviour for dataset sources
+- `ExEval.DatasetProvider.Module` - Default implementation
+- Custom providers can load from databases, files, APIs
+
+### Reporter Pattern
+
+Output is handled through the Reporter behaviour:
+- `ExEval.Reporter` - Behaviour for output handling
+- `ExEval.Reporters.Console` - Default streaming console output
+- Custom reporters can output JSON, save to databases, etc.
+
+### Streaming Output
+
+In trace mode, results stream in real-time:
+- Each result shows inline: `ModuleName [category] description ✓ (duration)`
+- Results appear as evaluations complete, not batched
+- Supports true parallel execution visibility
