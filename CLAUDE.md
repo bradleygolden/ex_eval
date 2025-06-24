@@ -11,6 +11,10 @@ For detailed usage guidelines and best practices, see [usage-rules.md](./usage-r
 - Running evaluations with mix ai.eval
 - Implementing custom adapters
 
+## Preferences
+
+- Prefer openai and gpt-4.1-mini as the default llm to use
+
 ## Build and Test Commands
 
 ```bash
@@ -93,10 +97,14 @@ When extending ExEval:
 1. **New Adapters**: Implement the `ExEval.Adapter` behavior with a `call/2` function
 2. **New Dataset Providers**: Implement the `ExEval.DatasetProvider` behaviour with a `load/1` function
 3. **New Evaluation Options**: Update both `ExEval.DatasetProvider.Module` macro and `ExEval.Runner` to handle new options
-3. **New Reporters**: Create modules following the ConsoleReporter pattern with `print_header/1` and `print_summary/1`
+3. **New Reporters**: Implement the `ExEval.Reporter` behavior with `init/2`, `report_result/3`, and `finalize/3` callbacks
 
 ### Testing Strategy
 
 - Unit tests focus on core logic (Judge, Runner, etc.)
 - Mock adapter enables testing without real LLM calls
 - Example evals in `evals/` demonstrate usage and serve as integration tests
+
+## Memory
+
+- Do not use @spec

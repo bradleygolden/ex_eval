@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# ExEval Code Review Tool - Uses Claude to perform comprehensive review
+
+set -euo pipefail
+
+# Default context if none provided
+DEFAULT_CONTEXT="Ensure code follows Elixir best practices and ExEval conventions"
+
+# Get optional context from command line
+CONTEXT="${1:-$DEFAULT_CONTEXT}"
+
+# Create a temporary file for the prompt
+PROMPT_FILE=$(mktemp)
+
+# Write the prompt to the file
+cat > "$PROMPT_FILE" << 'EOF'
+You are a code reviewer for the ExEval project. Please perform a comprehensive code review.
+
+Review the following aspects:
+1. Run 'mix format --check-formatted' and report any formatting issues
+2. Run 'mix test' and report if all tests pass
+3. Run 'mix compile --warnings-as-errors' and report any warnings
+4. Check for debugging statements (IO.inspect, IO.puts, dbg) in lib/ files
+5. Check for TODO/FIXME comments that need attention
+6. Run 'mix ai.eval' and verify evaluations can execute
+7. Review overall code quality and adherence to Elixir best practices
+8. Check error handling patterns
+9. Verify documentation with 'mix docs'
+10. IMPORTANT: Verify documentation accuracy:
+    - Check if README.md accurately describes current features and output formats
+    - Verify usage-rules.md reflects current best practices and architecture
+    - Ensure CLAUDE.md contains up-to-date build/test commands and architecture overview
+    - Compare documented examples against actual code behavior
+    - Look for any undocumented features or changes
+11. Check code comments:
+    - Ensure all comments are critical and add value
+    - Remove obvious or redundant comments (e.g., "# Add 1 to x" for "x + 1")
+    - Keep only comments that explain WHY, not WHAT
+    - Preserve comments for complex algorithms or non-obvious business logic
+    - Flag any unnecessary comments that should be removed
+
+For each check, clearly indicate:
+- ✓ PASSED or ✗ FAILED
+- Any specific issues found
+- Recommendations for fixes
+
+End with a clear summary: 'Code review PASSED' or 'Code review FAILED' with a list of items that need to be addressed.
+EOF
+
+# Add context if provided
+if [ $# -gt 0 ]; then
+    echo -e "\nAdditional review context: $CONTEXT" >> "$PROMPT_FILE"
+fi
+
+# Use Claude in streaming mode
+cat "$PROMPT_FILE" | claude
+
+# Clean up
+rm -f "$PROMPT_FILE"

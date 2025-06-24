@@ -1,5 +1,7 @@
 [env]
 _.file = ".env"
+# Add project bin directory to PATH for custom commands
+_.path = ["./bin"]
 
 [tools]
 elixir = "1.18.2"

@@ -1,4 +1,4 @@
-defmodule ExEval.ConsoleReporter do
+defmodule ExEval.Reporters.Console do
   @moduledoc """
   Console reporter for ExEval evaluation results.
 
@@ -8,10 +8,65 @@ defmodule ExEval.ConsoleReporter do
   - Trace: Detailed output with reasoning for each test
   """
 
-  @doc """
-  Print evaluation run header
-  """
-  def print_header(%ExEval.Runner{} = runner) do
+  @behaviour ExEval.Reporter
+
+  defstruct [:trace, :start_time, :failed_results, :error_results, :results, :printed_headers]
+
+  @impl ExEval.Reporter
+  def init(runner, config) do
+    state = %__MODULE__{
+      trace: config[:trace] || runner.options[:trace] || false,
+      start_time: System.monotonic_time(:millisecond),
+      failed_results: [],
+      error_results: [],
+      results: [],
+      printed_headers: MapSet.new()
+    }
+
+    print_header(runner, state)
+    {:ok, state}
+  end
+
+  @impl ExEval.Reporter
+  def report_result(result, state, _config) do
+    if state.trace do
+      # Trace mode prints results as they complete, unlike normal mode which batches
+      new_state = print_trace_result_with_headers(result, state)
+
+      new_state =
+        case result.status do
+          :failed -> %{new_state | failed_results: [result | new_state.failed_results]}
+          :error -> %{new_state | error_results: [result | new_state.error_results]}
+          _ -> new_state
+        end
+
+      {:ok, new_state}
+    else
+      print_dot_result(result)
+
+      new_state =
+        case result.status do
+          :failed -> %{state | failed_results: [result | state.failed_results]}
+          :error -> %{state | error_results: [result | state.error_results]}
+          _ -> state
+        end
+
+      {:ok, new_state}
+    end
+  end
+
+  @impl ExEval.Reporter
+  def finalize(runner, state, _config) do
+    # No need to print trace results in finalize since we print them as we go
+    if !state.trace do
+      IO.puts("")
+    end
+
+    print_summary(runner, state)
+    :ok
+  end
+
+  defp print_header(runner, _state) do
     total_count =
       runner.modules
       |> Enum.reduce(0, fn dataset, acc ->
@@ -20,29 +75,27 @@ defmodule ExEval.ConsoleReporter do
       end)
 
     IO.puts("Running ExEval with seed: #{:rand.uniform(999_999)}, max_cases: #{total_count}")
-
-    if !runner.options[:trace] || runner.options[:parallel] == false do
-      IO.puts("")
-    end
+    IO.puts("")
   end
 
-  @doc """
-  Print progress for a single evaluation result
-  """
-  def print_result(result, options \\ []) do
-    if options[:trace] do
-      print_trace_result(result)
-    else
-      print_dot_result(result)
-    end
+  defp print_trace_result_with_headers(result, state) do
+    print_trace_result_inline(result)
+    state
   end
 
-  defp print_trace_result(result) do
+  defp print_trace_result_inline(result) do
+    module_name =
+      case result[:module] do
+        nil -> "Unknown"
+        mod -> mod |> Module.split() |> List.last()
+      end
+
+    category = result[:category] || "uncategorized"
     input_str = format_input_for_trace(result.input)
 
     test_description =
-      if String.length(input_str) > 60 do
-        String.slice(input_str, 0, 57) <> "..."
+      if String.length(input_str) > 40 do
+        String.slice(input_str, 0, 37) <> "..."
       else
         input_str
       end
@@ -50,23 +103,19 @@ defmodule ExEval.ConsoleReporter do
     duration_str =
       if result[:duration_ms], do: " (#{format_duration(result.duration_ms)})", else: ""
 
+    prefix = "#{module_name} [#{category}] #{test_description}"
+
     case result.status do
       :passed ->
-        IO.puts("  * #{test_description}#{green(duration_str)}")
+        IO.puts("#{prefix} #{green("✓")}#{green(duration_str)}")
 
       :failed ->
-        IO.puts("  * #{test_description}#{red(duration_str)}")
-        IO.puts("")
-        IO.puts("     Failure:")
-        IO.puts("     #{result.reasoning}")
-        IO.puts("")
+        IO.puts("#{prefix} #{red("✗")}#{red(duration_str)}")
+        IO.puts("  #{red("Failure:")} #{result.reasoning}")
 
       :error ->
-        IO.puts("  * #{test_description}#{yellow(duration_str)}")
-        IO.puts("")
-        IO.puts("     Error:")
-        IO.puts("     #{result.error}")
-        IO.puts("")
+        IO.puts("#{prefix} #{yellow("!")}#{yellow(duration_str)}")
+        IO.puts("  #{yellow("Error:")} #{result.error}")
     end
   end
 
@@ -88,14 +137,11 @@ defmodule ExEval.ConsoleReporter do
     end
   end
 
-  @doc """
-  Print evaluation result summary
-  """
-  def print_summary(%ExEval.Runner{} = runner) do
+  defp print_summary(runner, state) do
     results_by_status = Enum.group_by(runner.results, & &1.status)
     passed = length(Map.get(results_by_status, :passed, []))
-    failed = length(Map.get(results_by_status, :failed, []))
-    errors = length(Map.get(results_by_status, :error, []))
+    failed = length(state.failed_results)
+    errors = length(state.error_results)
 
     duration =
       if runner.finished_at && runner.started_at do
@@ -104,28 +150,31 @@ defmodule ExEval.ConsoleReporter do
         0
       end
 
-    if !runner.options[:trace] do
+    if !state.trace do
       IO.puts("")
     end
 
-    if failed > 0 && !runner.options[:trace] do
+    if failed > 0 && !state.trace do
       IO.puts("")
 
-      results_by_status[:failed]
+      state.failed_results
+      |> Enum.reverse()
       |> Enum.with_index(1)
       |> Enum.each(fn {result, index} ->
-        IO.puts("  #{index}) #{result.module}: #{format_input_for_summary(result.input)}")
-        if result.category, do: IO.puts("     Category: #{result.category}")
+        category_info = if result[:category], do: " [#{result.category}]", else: ""
+        IO.puts("  #{index}) #{format_input_for_summary(result.input)}#{category_info}")
         IO.puts("     #{red(result.reasoning)}")
         IO.puts("")
       end)
     end
 
-    if errors > 0 && !runner.options[:trace] do
-      results_by_status[:error]
+    if errors > 0 && !state.trace do
+      state.error_results
+      |> Enum.reverse()
       |> Enum.with_index(failed + 1)
       |> Enum.each(fn {result, index} ->
-        IO.puts("  #{index}) #{result.module}: #{format_input_for_summary(result.input)}")
+        category_info = if result[:category], do: " [#{result.category}]", else: ""
+        IO.puts("  #{index}) #{format_input_for_summary(result.input)}#{category_info}")
         IO.puts("     #{yellow(result.error)}")
         IO.puts("")
       end)
