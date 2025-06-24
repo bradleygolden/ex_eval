@@ -11,7 +11,7 @@ defmodule FrameworkIntegrationEval do
   """
 
   use ExEval.Dataset,
-    response_fn: &FrameworkIntegrationTest.test_response/1,
+    response_fn: &__MODULE__.test_response/1,
     adapter: ExEval.Adapters.Mock,
     config: %{
       mock_response: "YES\nTest passes as expected"
