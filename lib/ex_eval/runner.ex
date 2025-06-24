@@ -288,21 +288,22 @@ defmodule ExEval.Runner do
   defp get_module_from_dataset(_), do: nil
 
   defp apply_response_fn(response_fn, input) do
-    try do
-      case :erlang.fun_info(response_fn)[:arity] do
-        1 ->
-          response_fn.(input)
+    arity = :erlang.fun_info(response_fn)[:arity]
 
-        2 ->
-          context = Process.get(:eval_context, %{})
-          response_fn.(input, context)
+    case arity do
+      1 ->
+        response_fn.(input)
 
-        arity ->
-          raise "response_fn has arity #{arity}, must be 1 or 2"
-      end
-    rescue
-      e ->
-        reraise e, __STACKTRACE__
+      2 ->
+        context = Process.get(:eval_context, %{})
+        response_fn.(input, context)
+
+      arity ->
+        raise ArgumentError, "response_fn has arity #{arity}, must be 1 or 2"
     end
+  rescue
+    _e in FunctionClauseError ->
+      reraise "FunctionClauseError calling response_fn. Check that response function has correct arity and accepts the provided input.",
+              __STACKTRACE__
   end
 end
