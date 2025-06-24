@@ -253,7 +253,6 @@ defmodule ExEval.ConsoleReporterTest do
     end
 
     test "formats duration correctly" do
-      # Test milliseconds
       runner1 = %ExEval.Runner{
         modules: [],
         options: [trace: false],
@@ -269,7 +268,6 @@ defmodule ExEval.ConsoleReporterTest do
 
       assert output1 =~ "Finished in 250ms"
 
-      # Test seconds
       runner2 = %ExEval.Runner{
         modules: [],
         options: [trace: false],
