@@ -65,74 +65,74 @@ defmodule ExEval.Runner do
   end
 
   defp run_parallel(runner) do
-    all_cases =
-      runner.modules
-      |> Enum.flat_map(fn module ->
-        if function_exported?(module, :__ex_eval_eval_cases__, 0) do
-          context =
-            if function_exported?(module, :__ex_eval_setup__, 0) do
-              module.__ex_eval_setup__()
-            else
-              %{}
-            end
-
-          eval_cases = module.__ex_eval_eval_cases__()
-          response_fn = module.__ex_eval_response_fn__()
-
-          if runner.options[:trace] do
-            IO.puts("\n\n#{inspect(module)}")
+    runner.modules
+    |> Enum.flat_map(fn module ->
+      if function_exported?(module, :__ex_eval_eval_cases__, 0) do
+        context =
+          if function_exported?(module, :__ex_eval_setup__, 0) do
+            module.__ex_eval_setup__()
+          else
+            %{}
           end
 
+        eval_cases = module.__ex_eval_eval_cases__()
+        response_fn = module.__ex_eval_response_fn__()
+
+        if runner.options[:trace] do
+          IO.puts("\n\n#{inspect(module)}")
+        end
+
+        module_cases =
           eval_cases
           |> filter_by_categories(runner.options[:categories])
           |> Enum.map(fn eval_case ->
             {module, eval_case, response_fn, context, runner}
           end)
-        else
-          []
-        end
-      end)
 
-    all_cases
-    |> Task.async_stream(
-      fn {module, eval_case, response_fn, context, runner} ->
-        Process.put(:eval_context, context)
-        result = run_eval_case(eval_case, response_fn, module, runner)
-        
-        if reporter = runner.options[:reporter] do
-          reporter.print_result(result, runner.options)
-        end
-        
-        result
-      end,
-      max_concurrency: runner.options[:max_concurrency],
-      timeout: runner.options[:timeout]
-    )
-    |> Enum.map(fn
-      {:ok, result} ->
-        result
+        module_cases
+        |> Task.async_stream(
+          fn {module, eval_case, response_fn, context, runner} ->
+            Process.put(:eval_context, context)
+            result = run_eval_case(eval_case, response_fn, module, runner)
+            
+            if reporter = runner.options[:reporter] do
+              reporter.print_result(result, runner.options)
+            end
+            
+            result
+          end,
+          max_concurrency: runner.options[:max_concurrency],
+          timeout: runner.options[:timeout]
+        )
+        |> Enum.map(fn
+          {:ok, result} ->
+            result
 
-      {:exit, {:timeout, _}} ->
-        result = %{
-          status: :error,
-          error: "Evaluation timed out after #{runner.options[:timeout]}ms",
-          module: :unknown
-        }
-        
-        if reporter = runner.options[:reporter] do
-          reporter.print_result(result, runner.options)
-        end
-        
-        result
+          {:exit, {:timeout, _}} ->
+            result = %{
+              status: :error,
+              error: "Evaluation timed out after #{runner.options[:timeout]}ms",
+              module: module
+            }
+            
+            if reporter = runner.options[:reporter] do
+              reporter.print_result(result, runner.options)
+            end
+            
+            result
 
-      {:exit, reason} ->
-        result = %{status: :error, error: "Evaluation crashed: #{inspect(reason)}", module: :unknown}
-        
-        if reporter = runner.options[:reporter] do
-          reporter.print_result(result, runner.options)
-        end
-        
-        result
+          {:exit, reason} ->
+            result = %{status: :error, error: "Evaluation crashed: #{inspect(reason)}", module: module}
+            
+            if reporter = runner.options[:reporter] do
+              reporter.print_result(result, runner.options)
+            end
+            
+            result
+        end)
+      else
+        []
+      end
     end)
   end
 
