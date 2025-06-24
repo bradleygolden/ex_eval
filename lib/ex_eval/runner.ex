@@ -78,60 +78,76 @@ defmodule ExEval.Runner do
   end
 
   defp run_parallel(runner, reporter_module, reporter_state, reporter_config) do
-    all_cases =
-      runner.modules
-      |> Enum.flat_map(fn dataset ->
-        context =
-          if dataset.setup_fn do
-            dataset.setup_fn.()
-          else
-            %{}
-          end
-
-        eval_cases = dataset.cases
-        response_fn = dataset.response_fn
-
-        eval_cases
-        |> filter_by_categories(runner.options[:categories])
-        |> Enum.map(fn eval_case ->
-          {dataset, eval_case, response_fn, context}
-        end)
-      end)
+    all_cases = prepare_all_cases(runner)
 
     {results, final_state} =
       all_cases
-      |> Task.async_stream(
-        fn {dataset, eval_case, response_fn, context} ->
-          Process.put(:eval_context, context)
-          run_eval_case(eval_case, response_fn, dataset, runner)
-        end,
-        max_concurrency: runner.options[:max_concurrency],
-        timeout: runner.options[:timeout]
-      )
-      |> Enum.reduce({[], reporter_state}, fn stream_result, {results_acc, state_acc} ->
-        result =
-          case stream_result do
-            {:ok, result} ->
-              result
-
-            {:exit, {:timeout, _}} ->
-              %{
-                status: :error,
-                error: "Evaluation timed out after #{runner.options[:timeout]}ms"
-              }
-
-            {:exit, reason} ->
-              %{
-                status: :error,
-                error: "Evaluation crashed: #{inspect(reason)}"
-              }
-          end
-
-        {:ok, new_state} = reporter_module.report_result(result, state_acc, reporter_config)
-        {[result | results_acc], new_state}
-      end)
+      |> run_cases_async(runner)
+      |> process_async_results(runner, reporter_module, reporter_state, reporter_config)
 
     {Enum.reverse(results), final_state}
+  end
+
+  defp prepare_all_cases(runner) do
+    runner.modules
+    |> Enum.flat_map(fn dataset ->
+      context = get_dataset_context(dataset)
+      eval_cases = dataset.cases
+      response_fn = dataset.response_fn
+
+      eval_cases
+      |> filter_by_categories(runner.options[:categories])
+      |> Enum.map(fn eval_case ->
+        {dataset, eval_case, response_fn, context}
+      end)
+    end)
+  end
+
+  defp get_dataset_context(dataset) do
+    if dataset.setup_fn do
+      dataset.setup_fn.()
+    else
+      %{}
+    end
+  end
+
+  defp run_cases_async(cases, runner) do
+    Task.async_stream(
+      cases,
+      fn {dataset, eval_case, response_fn, context} ->
+        Process.put(:eval_context, context)
+        run_eval_case(eval_case, response_fn, dataset, runner)
+      end,
+      max_concurrency: runner.options[:max_concurrency],
+      timeout: runner.options[:timeout]
+    )
+  end
+
+  defp process_async_results(stream, runner, reporter_module, reporter_state, reporter_config) do
+    Enum.reduce(stream, {[], reporter_state}, fn stream_result, {results_acc, state_acc} ->
+      result = handle_stream_result(stream_result, runner)
+      {:ok, new_state} = reporter_module.report_result(result, state_acc, reporter_config)
+      {[result | results_acc], new_state}
+    end)
+  end
+
+  defp handle_stream_result(stream_result, runner) do
+    case stream_result do
+      {:ok, result} ->
+        result
+
+      {:exit, {:timeout, _}} ->
+        %{
+          status: :error,
+          error: "Evaluation timed out after #{runner.options[:timeout]}ms"
+        }
+
+      {:exit, reason} ->
+        %{
+          status: :error,
+          error: "Evaluation crashed: #{inspect(reason)}"
+        }
+    end
   end
 
   defp run_sequential(runner, reporter_module, reporter_state, reporter_config) do
@@ -180,64 +196,9 @@ defmodule ExEval.Runner do
     result =
       try do
         Process.put(:ex_eval_conversation_responses, [])
-
-        {response, judge_prompt} =
-          try do
-            case Map.get(eval_case, :input) do
-              inputs when is_list(inputs) ->
-                responses =
-                  Enum.map(inputs, fn input ->
-                    resp = apply_response_fn(response_fn, input)
-
-                    Process.put(
-                      :ex_eval_conversation_responses,
-                      Process.get(:ex_eval_conversation_responses, []) ++ [resp]
-                    )
-
-                    resp
-                  end)
-
-                {List.last(responses), Map.get(eval_case, :judge_prompt)}
-
-              input ->
-                {apply_response_fn(response_fn, input), Map.get(eval_case, :judge_prompt)}
-            end
-          rescue
-            _e in FunctionClauseError ->
-              reraise "FunctionClauseError calling response_fn. Check that response function has correct arity.",
-                      __STACKTRACE__
-          end
-
-        adapter = Map.get(dataset, :adapter) || ExEval.Adapters.LangChain
-        config = Map.get(dataset, :config) || %{}
-
-        judge_result =
-          ExEval.Judge.evaluate(
-            ExEval.new(adapter: adapter, config: config),
-            response,
-            judge_prompt
-          )
-
-        case judge_result do
-          {:ok, true, reasoning} ->
-            %{
-              status: :passed,
-              reasoning: reasoning
-            }
-
-          {:ok, false, reasoning} ->
-            %{
-              status: :failed,
-              reasoning: reasoning,
-              response: response
-            }
-
-          {:error, error} ->
-            %{
-              status: :error,
-              error: "Judge error: #{inspect(error)}"
-            }
-        end
+        {response, judge_prompt} = get_response_and_prompt(eval_case, response_fn)
+        judge_result = run_judge(dataset, response, judge_prompt)
+        format_judge_result(judge_result, response)
       catch
         kind, error ->
           %{
@@ -257,6 +218,70 @@ defmodule ExEval.Runner do
       judge_prompt: eval_case.judge_prompt,
       duration_ms: end_time - start_time
     })
+  end
+
+  defp get_response_and_prompt(eval_case, response_fn) do
+    try do
+      case Map.get(eval_case, :input) do
+        inputs when is_list(inputs) ->
+          responses = run_conversation(inputs, response_fn)
+          {List.last(responses), Map.get(eval_case, :judge_prompt)}
+
+        input ->
+          {apply_response_fn(response_fn, input), Map.get(eval_case, :judge_prompt)}
+      end
+    rescue
+      _e in FunctionClauseError ->
+        reraise "FunctionClauseError calling response_fn. Check that response function has correct arity.",
+                __STACKTRACE__
+    end
+  end
+
+  defp run_conversation(inputs, response_fn) do
+    Enum.map(inputs, fn input ->
+      resp = apply_response_fn(response_fn, input)
+
+      Process.put(
+        :ex_eval_conversation_responses,
+        Process.get(:ex_eval_conversation_responses, []) ++ [resp]
+      )
+
+      resp
+    end)
+  end
+
+  defp run_judge(dataset, response, judge_prompt) do
+    adapter = Map.get(dataset, :adapter) || ExEval.Adapters.LangChain
+    config = Map.get(dataset, :config) || %{}
+
+    ExEval.Judge.evaluate(
+      ExEval.new(adapter: adapter, config: config),
+      response,
+      judge_prompt
+    )
+  end
+
+  defp format_judge_result(judge_result, response) do
+    case judge_result do
+      {:ok, true, reasoning} ->
+        %{
+          status: :passed,
+          reasoning: reasoning
+        }
+
+      {:ok, false, reasoning} ->
+        %{
+          status: :failed,
+          reasoning: reasoning,
+          response: response
+        }
+
+      {:error, error} ->
+        %{
+          status: :error,
+          error: "Judge error: #{inspect(error)}"
+        }
+    end
   end
 
   defp get_module_from_dataset(%{metadata: %{module: module}}), do: module
