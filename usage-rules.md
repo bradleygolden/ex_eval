@@ -80,8 +80,7 @@ mix ai.eval                    # Run all evaluations
 mix ai.eval path/to/eval.exs  # Run specific file
 mix ai.eval --category security # Filter by category
 mix ai.eval --trace            # Show detailed output
-mix ai.eval --parallel         # Run in parallel (default)
-mix ai.eval --sequential       # Run sequentially
+mix ai.eval --sequential       # Run sequentially (parallel is default)
 ```
 
 ## Custom Adapters
@@ -142,7 +141,11 @@ end
 ### With LangChain
 - Use `ExEval.Adapters.LangChain` as default
 - Configure model and temperature appropriately
-- Set API keys via environment variables
+- Set API keys via environment variables:
+  ```bash
+  export OPENAI_API_KEY="your-key"
+  export ANTHROPIC_API_KEY="your-key"  # For Claude models
+  ```
 
 ## Debugging Tips
 

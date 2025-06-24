@@ -44,6 +44,31 @@ def deps do
 end
 ```
 
+## Environment Setup
+
+Before running evaluations, you'll need to set up API credentials for your LLM provider:
+
+### OpenAI (default LangChain adapter)
+```bash
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+### Anthropic Claude
+```bash
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+```
+
+### Other Environment Variables
+```bash
+# Optional: Set custom timeout for LLM requests (in milliseconds)
+export EX_EVAL_TIMEOUT=30000
+
+# Optional: Set default concurrency level
+export EX_EVAL_MAX_CONCURRENCY=5
+```
+
+**Note:** API keys can also be configured in your `config/eval.exs` file, but environment variables are recommended for security.
+
 ## Quick Start: Testing Your AI in 3 Steps
 
 ### Step 1: Configure your evaluation environment
