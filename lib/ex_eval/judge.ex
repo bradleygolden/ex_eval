@@ -4,16 +4,16 @@ defmodule ExEval.Judge do
   """
 
   @doc """
-  Evaluate a response against criteria using the configured adapter.
+  Evaluate a response against criteria using the configured judge provider.
 
-  Returns `{:ok, boolean}` or `{:error, reason}`.
+  Returns `{:ok, boolean, reasoning}` or `{:error, reason}`.
   """
   def evaluate(config, response, criteria) do
     prompt = build_prompt(response, criteria)
 
-    adapter_config = config.config || %{}
+    judge_provider_config = config.config || %{}
 
-    case config.adapter.call(prompt, adapter_config) do
+    case config.judge_provider.call(prompt, judge_provider_config) do
       {:ok, judgment} ->
         parse_boolean_judgment(judgment)
 

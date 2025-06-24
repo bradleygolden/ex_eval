@@ -46,8 +46,8 @@ end
 ```elixir
 # config/eval.exs
 config :ex_eval,
-  adapter: ExEval.Adapters.LangChain,
-  adapter_config: %{
+  judge_provider: ExEval.JudgeProvider.LangChain,
+  judge_provider_config: %{
     model: "gpt-4.1-mini",
     temperature: 0.1
   }
@@ -83,12 +83,12 @@ mix ai.eval --trace            # Show detailed output
 mix ai.eval --sequential       # Run sequentially (parallel is default)
 ```
 
-## Custom Adapters
+## Custom Judge Providers
 
-### Implementing Adapters
+### Implementing Judge Providers
 ```elixir
-defmodule MyAdapter do
-  @behaviour ExEval.Adapter
+defmodule MyJudgeProvider do
+  @behaviour ExEval.JudgeProvider
   
   @impl true
   def call(prompt, config) do
@@ -97,8 +97,8 @@ defmodule MyAdapter do
 end
 ```
 
-### Adapter Requirements
-- Must implement `ExEval.Adapter` behaviour
+### Judge Provider Requirements
+- Must implement `ExEval.JudgeProvider` behaviour
 - Must return structured YES/NO responses
 - Should include reasoning in responses
 
@@ -139,7 +139,7 @@ end
 - Store evaluation history for trend analysis
 
 ### With LangChain
-- Use `ExEval.Adapters.LangChain` as default
+- Use `ExEval.JudgeProvider.LangChain` as default
 - Configure model and temperature appropriately
 - Set API keys via environment variables:
   ```bash
@@ -150,10 +150,10 @@ end
 ## Debugging Tips
 
 1. Use `--trace` flag for detailed output
-2. Check adapter responses for parsing issues
+2. Check judge provider responses for parsing issues
 3. Verify response function returns strings
 4. Ensure judge prompts are YES/NO answerable
-5. Use mock adapter for isolated testing
+5. Use mock judge provider for isolated testing
 
 ## Code Review
 

@@ -1,6 +1,6 @@
 defmodule LangChainOpenAIEval do
   @moduledoc """
-  Integration test for the LangChain adapter with OpenAI models.
+  Integration test for the LangChain judge provider with OpenAI models.
   
   This evaluation specifically tests OpenAI integration through LangChain:
   - Basic response generation and judgment with GPT-4.1-mini
@@ -15,7 +15,7 @@ defmodule LangChainOpenAIEval do
 
   use ExEval.Dataset,
     response_fn: &__MODULE__.generate_ai_response/1,
-    adapter: ExEval.Adapters.LangChain,
+    judge_provider: ExEval.JudgeProvider.LangChain,
     config: %{
       model: "gpt-4.1-mini",
       temperature: 0.1

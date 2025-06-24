@@ -2,17 +2,17 @@ defmodule FrameworkIntegrationEval do
   @moduledoc """
   Integration test for the ExEval framework.
 
-  This module tests the end-to-end functionality of ExEval using the mock adapter
+  This module tests the end-to-end functionality of ExEval using the mock judge provider
   to ensure the framework correctly:
   - Processes evaluation datasets
   - Calls response functions
-  - Invokes the adapter for judging
+  - Invokes the judge provider for judging
   - Reports results properly
   """
 
   use ExEval.Dataset,
     response_fn: &__MODULE__.test_response/1,
-    adapter: ExEval.Adapters.Mock,
+    judge_provider: ExEval.JudgeProvider.EvalMock,
     config: %{
       mock_response: "YES\nTest passes as expected"
     }

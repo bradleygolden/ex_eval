@@ -30,8 +30,8 @@ defmodule ExEval.DatasetProvider.Module do
   ## Options
 
   - `:response_fn` - Function to generate responses (required)
-  - `:adapter` - Adapter module for the LLM judge (optional)
-  - `:config` - Configuration for the adapter (optional)
+  - `:judge_provider` - Adapter module for the LLM judge (optional)
+  - `:config` - Configuration for the judge provider (optional)
   """
 
   @behaviour ExEval.DatasetProvider
@@ -49,16 +49,121 @@ defmodule ExEval.DatasetProvider.Module do
     %{
       cases: module.__ex_eval_eval_cases__(),
       response_fn: module.__ex_eval_response_fn__(),
-      adapter: get_adapter(module),
+      judge_provider: get_adapter(module),
       config: get_config(module),
       setup_fn: get_setup_fn(module),
       metadata: %{module: module}
     }
   end
 
+  @impl ExEval.DatasetProvider
+  def list_evaluations(opts \\ []) do
+    path = Keyword.get(opts, :path, "evals/**/*_eval.exs")
+
+    # Use process dictionary for simple caching during test runs
+    cache_key = {:ex_eval_module_cache, path}
+
+    case Process.get(cache_key) do
+      nil ->
+        modules =
+          path
+          |> Path.wildcard()
+          |> Enum.flat_map(&compile_and_extract_modules/1)
+          |> Enum.filter(&has_eval_dataset?/1)
+
+        Process.put(cache_key, modules)
+        modules
+
+      cached_modules ->
+        cached_modules
+    end
+  end
+
+  @impl ExEval.DatasetProvider
+  def get_evaluation_info(module, _opts \\ []) do
+    if has_eval_dataset?(module) do
+      cases = module.__ex_eval_eval_cases__()
+
+      {:ok,
+       %{
+         module: module,
+         categories: extract_categories(cases),
+         case_count: length(cases),
+         cases: cases,
+         judge_provider: get_adapter(module),
+         config: get_config(module)
+       }}
+    else
+      {:error, :not_an_evaluation_module}
+    end
+  end
+
+  @impl ExEval.DatasetProvider
+  def get_categories(opts \\ []) do
+    opts
+    |> list_evaluations()
+    |> Enum.flat_map(fn module ->
+      case get_evaluation_info(module) do
+        {:ok, %{categories: categories}} -> categories
+        _ -> []
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @impl ExEval.DatasetProvider
+  def list_evaluations_by_category(categories, opts \\ []) when is_list(categories) do
+    opts
+    |> list_evaluations()
+    |> Enum.filter(fn module ->
+      case get_evaluation_info(module) do
+        {:ok, %{categories: module_categories}} ->
+          Enum.any?(categories, &(&1 in module_categories))
+
+        _ ->
+          false
+      end
+    end)
+  end
+
+  # Private helper functions
+
+  defp compile_and_extract_modules(file) do
+    try do
+      # Compile with ignore_module_conflict to suppress redefinition warnings
+      original_opts = Code.compiler_options()
+      Code.compiler_options(ignore_module_conflict: true)
+
+      result =
+        Code.compile_file(file)
+        |> Enum.map(fn {module, _bytecode} -> module end)
+
+      # Restore original compiler options
+      Code.compiler_options(original_opts)
+      result
+    rescue
+      error in [CompileError, SyntaxError, TokenMissingError] ->
+        IO.warn("Failed to compile #{file}: #{Exception.message(error)}")
+        []
+    end
+  end
+
+  defp has_eval_dataset?(module) do
+    function_exported?(module, :__ex_eval_eval_cases__, 0)
+  end
+
+  defp extract_categories(cases) do
+    cases
+    |> Enum.map(& &1.category)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
   defp get_adapter(module) do
-    if function_exported?(module, :__ex_eval_adapter__, 0) do
-      module.__ex_eval_adapter__()
+    if function_exported?(module, :__ex_eval_judge_provider__, 0) do
+      module.__ex_eval_judge_provider__()
     end
   end
 
@@ -90,7 +195,7 @@ defmodule ExEval.DatasetProvider.Module do
     dataset_opts = Module.get_attribute(env.module, :dataset_opts, [])
 
     response_fn = dataset_opts[:response_fn]
-    adapter = dataset_opts[:adapter]
+    adapter = dataset_opts[:judge_provider]
     config = dataset_opts[:config]
 
     quote do
@@ -103,7 +208,7 @@ defmodule ExEval.DatasetProvider.Module do
       end
 
       if unquote(adapter) do
-        def __ex_eval_adapter__ do
+        def __ex_eval_judge_provider__ do
           unquote(adapter)
         end
       end

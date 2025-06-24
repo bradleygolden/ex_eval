@@ -9,7 +9,7 @@ For detailed usage guidelines and best practices, see [usage-rules.md](./usage-r
 - Configuring the evaluation environment
 - Creating effective judge prompts
 - Running evaluations with mix ai.eval
-- Implementing custom adapters
+- Implementing custom judge providers
 
 ## Preferences
 
@@ -54,11 +54,11 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
    - `response_fn` - Function that generates AI responses to evaluate
    - `eval_dataset` - List of evaluation cases with inputs and judge prompts
    - Optional `dataset_setup` - Context setup for evaluations
-   - Optional `adapter` and `config` - Custom adapter configuration
+   - Optional `judge_provider` and `config` - Custom judge provider configuration
 
 3. **ExEval.Judge** - Orchestrates the evaluation process by:
    - Building prompts that combine criteria and responses
-   - Calling the configured adapter (LLM) to judge responses
+   - Calling the configured judge provider (LLM) to judge responses
    - Parsing YES/NO judgments with reasoning
 
 4. **ExEval.Runner** - Executes evaluation suites with:
@@ -67,17 +67,17 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
    - Category filtering
    - Progress reporting via ConsoleReporter
 
-5. **Adapter System** - Pluggable LLM provider interface:
-   - `ExEval.Adapter` behavior defines the contract
-   - `ExEval.Adapters.LangChain` - Default OpenAI adapter
-   - Mock adapter in `evals/support/adapters/mock.ex` for testing
+5. **Judge Provider System** - Pluggable LLM provider interface:
+   - `ExEval.JudgeProvider` behavior defines the contract
+   - `ExEval.JudgeProvider.LangChain` - Default OpenAI judge provider
+   - Mock judge provider in `evals/support/judge_provider/eval_mock.ex` for testing
 
 ### Directory Structure
 
 - `lib/ex_eval/` - Core framework code
 - `lib/mix/tasks/eval.ex` - Mix task for running evaluations
 - `evals/` - Example evaluation suites (compiled only in dev/test)
-- `evals/support/` - Support code like mock adapter (dev/test only)
+- `evals/support/` - Support code like mock judge provider (dev/test only)
 - `test/` - Unit tests for the framework
 
 ### Key Design Patterns
@@ -94,7 +94,7 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
 
 When extending ExEval:
 
-1. **New Adapters**: Implement the `ExEval.Adapter` behavior with a `call/2` function
+1. **New Judge Providers**: Implement the `ExEval.JudgeProvider` behavior with a `call/2` function
 2. **New Dataset Providers**: Implement the `ExEval.DatasetProvider` behaviour with a `load/1` function
 3. **New Evaluation Options**: Update both `ExEval.DatasetProvider.Module` macro and `ExEval.Runner` to handle new options
 3. **New Reporters**: Implement the `ExEval.Reporter` behavior with `init/2`, `report_result/3`, and `finalize/3` callbacks
@@ -102,7 +102,7 @@ When extending ExEval:
 ### Testing Strategy
 
 - Unit tests focus on core logic (Judge, Runner, etc.)
-- Mock adapter enables testing without real LLM calls
+- Mock judge provider enables testing without real LLM calls
 - Example evals in `evals/` demonstrate usage and serve as integration tests
 
 ## Memory

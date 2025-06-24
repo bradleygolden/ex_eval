@@ -4,7 +4,7 @@ defmodule ExEval.JudgeTest do
   describe "evaluate/3" do
     test "returns {:ok, true, reasoning} for YES response" do
       config = %ExEval{
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.TestMock,
         config: %{mock_response: "YES\nThe response is correct"}
       }
 
@@ -15,7 +15,7 @@ defmodule ExEval.JudgeTest do
 
     test "returns {:ok, false, reasoning} for NO response" do
       config = %ExEval{
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.TestMock,
         config: %{mock_response: "NO\nThe response is incorrect"}
       }
 
@@ -26,12 +26,12 @@ defmodule ExEval.JudgeTest do
 
     test "handles PASS/FAIL responses" do
       config_pass = %ExEval{
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.TestMock,
         config: %{mock_response: "PASS\nLooks good"}
       }
 
       config_fail = %ExEval{
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.TestMock,
         config: %{mock_response: "FAIL\nNot good"}
       }
 
@@ -43,7 +43,7 @@ defmodule ExEval.JudgeTest do
 
     test "handles responses without reasoning" do
       config = %ExEval{
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.TestMock,
         config: %{mock_response: "YES"}
       }
 
@@ -54,7 +54,7 @@ defmodule ExEval.JudgeTest do
 
     test "returns error for invalid response format" do
       config = %ExEval{
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.TestMock,
         config: %{mock_response: "MAYBE\nNot sure"}
       }
 
@@ -63,9 +63,9 @@ defmodule ExEval.JudgeTest do
       assert {:error, "Could not parse judgment: MAYBE\nNot sure"} = result
     end
 
-    test "passes through adapter errors" do
+    test "passes through judge provider errors" do
       config = %ExEval{
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.TestMock,
         config: %{mock_response: {:error, "API error"}}
       }
 
@@ -76,7 +76,7 @@ defmodule ExEval.JudgeTest do
 
     test "handles case insensitive responses" do
       config = %ExEval{
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.TestMock,
         config: %{mock_response: "yes\nAll good"}
       }
 

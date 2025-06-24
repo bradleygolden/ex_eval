@@ -1,6 +1,6 @@
-defmodule ExEval.Adapters.LangChain do
+defmodule ExEval.JudgeProvider.LangChain do
   @moduledoc """
-  LangChain adapter for ExEval.
+  LangChain judge provider for ExEval.
 
   Uses LangChain to communicate with LLM providers. LangChain will
   automatically detect API keys from environment variables:
@@ -18,11 +18,11 @@ defmodule ExEval.Adapters.LangChain do
   ## Examples
 
       # Use OpenAI (default)
-      ExEval.new(adapter: ExEval.Adapters.LangChain)
+      ExEval.new(judge_provider: ExEval.JudgeProvider.LangChain)
       
       # Use Anthropic
       ExEval.new(
-        adapter: ExEval.Adapters.LangChain,
+        judge_provider: ExEval.JudgeProvider.LangChain,
         config: %{
           chat_model: LangChain.ChatModels.ChatAnthropic,
           model: "claude-3-haiku-20240307"
@@ -32,7 +32,7 @@ defmodule ExEval.Adapters.LangChain do
   Supports both text responses and structured JSON responses.
   """
 
-  @behaviour ExEval.Adapter
+  @behaviour ExEval.JudgeProvider
 
   alias LangChain.Chains.LLMChain
   alias LangChain.Message

@@ -1,24 +1,24 @@
-defmodule ExEval.Adapters.Mock do
+defmodule ExEval.JudgeProvider.EvalMock do
   @moduledoc """
-  Mock adapter for testing ExEval without making real LLM calls.
+  Mock judge provider for testing ExEval without making real LLM calls.
   
   ## Usage
   
       # Configure to always pass
       ExEval.new(
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.EvalMock,
         config: %{mock_response: "YES\\nThe response meets all criteria"}
       )
       
       # Configure to always fail
       ExEval.new(
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.EvalMock,
         config: %{mock_response: "NO\\nThe response does not meet criteria"}
       )
       
       # Use a function for dynamic responses
       ExEval.new(
-        adapter: ExEval.Adapters.Mock,
+        judge_provider: ExEval.JudgeProvider.EvalMock,
         config: %{
           mock_response: fn prompt ->
             if String.contains?(prompt, "security") do
@@ -31,7 +31,7 @@ defmodule ExEval.Adapters.Mock do
       )
   """
   
-  @behaviour ExEval.Adapter
+  @behaviour ExEval.JudgeProvider
   
   @impl true
   def call(prompt, config) do

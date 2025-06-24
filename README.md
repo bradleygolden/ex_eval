@@ -38,7 +38,7 @@ Add `ex_eval` to your dependencies:
 def deps do
   [
     {:ex_eval, github: "bradleygolden/ex_eval", branch: "master"},
-    # If using the default LangChain adapter:
+    # If using the default LangChain judge provider:
     {:langchain, "~> 0.3.0"}
   ]
 end
@@ -48,7 +48,7 @@ end
 
 Before running evaluations, you'll need to set up API credentials for your LLM provider:
 
-### OpenAI (default LangChain adapter)
+### OpenAI (default LangChain judge provider)
 ```bash
 export OPENAI_API_KEY="your-openai-api-key"
 ```
@@ -87,8 +87,8 @@ import Config
 
 # Configure the LLM judge
 config :ex_eval,
-  adapter: ExEval.Adapters.LangChain,
-  adapter_config: %{
+  judge_provider: ExEval.JudgeProvider.LangChain,
+  judge_provider_config: %{
     model: "gpt-4.1-mini",
     temperature: 0.1
   }
@@ -248,8 +248,8 @@ end
 ### Macro Options
 
 - **`response_fn`** (required) - Function that generates AI responses. Receives the input and returns a string response.
-- **`adapter`** (optional) - Custom LLM adapter for judging. Defaults to the configured adapter.
-- **`config`** (optional) - Configuration for the adapter (API keys, model settings, etc.)
+- **`judge_provider`** (optional) - Custom LLM judge provider for judging. Defaults to the configured judge provider.
+- **`config`** (optional) - Configuration for the judge provider (API keys, model settings, etc.)
 
 ### Dataset Structure
 
@@ -299,14 +299,14 @@ defmodule MyEval do
 end
 ```
 
-### Custom Adapters per Module
+### Custom Judge Providers per Module
 
-You can override the default adapter for specific evaluations:
+You can override the default judge provider for specific evaluations:
 
 ```elixir
 use ExEval.Dataset,
   response_fn: &MyEval.get_response/1,
-  adapter: MyApp.StrictAdapter,
+  judge_provider: MyApp.StrictJudgeProvider,
   config: %{temperature: 0.0}
 ```
 
@@ -321,7 +321,7 @@ The `:eval` environment is a dedicated Mix environment for running evaluations. 
 
 This separation ensures:
 - Evaluation-specific dependencies are only loaded when needed
-- Mock adapters and test utilities don't leak into production
+- Mock judge providers and test utilities don't leak into production
 - Your AI is evaluated in conditions closer to production
 
 Set your API key as an environment variable before running evaluations:
@@ -331,13 +331,13 @@ export OPENAI_API_KEY="your-api-key"
 export ANTHROPIC_API_KEY="your-api-key"
 ```
 
-## Advanced: Custom Adapters
+## Advanced: Custom Judge Providers
 
-Want to use a different LLM provider or framework? Create your own adapter:
+Want to use a different LLM provider or framework? Create your own judge provider:
 
 ```elixir
-defmodule MyApp.CustomAdapter do
-  @behaviour ExEval.Adapter
+defmodule MyApp.CustomJudgeProvider do
+  @behaviour ExEval.JudgeProvider
 
   @impl true
   def call(prompt, config) do
@@ -371,7 +371,7 @@ defmodule ExEval.DatasetProvider.Ecto do
     %{
       cases: repo.all(query),
       response_fn: response_fn,
-      adapter: Keyword.get(opts, :adapter),
+      judge_provider: Keyword.get(opts, :judge_provider),
       config: Keyword.get(opts, :config, %{}),
       setup_fn: Keyword.get(opts, :setup_fn),
       metadata: %{source: :ecto}
@@ -388,8 +388,8 @@ Your `load/1` function must return a map with:
 
 ### Optional Fields
 
-- `:adapter` - Adapter module for the LLM judge
-- `:config` - Configuration for the adapter
+- `:judge_provider` - Judge provider module for the LLM judge
+- `:config` - Configuration for the judge provider
 - `:setup_fn` - Function to run before evaluation
 - `:metadata` - Any metadata about the dataset
 
@@ -459,7 +459,7 @@ Configure your reporter when running evaluations:
 
 ```elixir
 # Via mix task
-mix ai.eval --reporter MyApp.JSONReporter --reporter-config output_path:results.json
+mix ai.eval --reporter MyApp.JSONReporter --reporter-opts output_path:results.json
 
 # Via code
 ExEval.Runner.run(modules,

@@ -221,19 +221,13 @@ defmodule ExEval.Runner do
   end
 
   defp get_response_and_prompt(eval_case, response_fn) do
-    try do
-      case Map.get(eval_case, :input) do
-        inputs when is_list(inputs) ->
-          responses = run_conversation(inputs, response_fn)
-          {List.last(responses), Map.get(eval_case, :judge_prompt)}
+    case Map.get(eval_case, :input) do
+      inputs when is_list(inputs) ->
+        responses = run_conversation(inputs, response_fn)
+        {List.last(responses), Map.get(eval_case, :judge_prompt)}
 
-        input ->
-          {apply_response_fn(response_fn, input), Map.get(eval_case, :judge_prompt)}
-      end
-    rescue
-      _e in FunctionClauseError ->
-        reraise "FunctionClauseError calling response_fn. Check that response function has correct arity.",
-                __STACKTRACE__
+      input ->
+        {apply_response_fn(response_fn, input), Map.get(eval_case, :judge_prompt)}
     end
   end
 
@@ -251,11 +245,11 @@ defmodule ExEval.Runner do
   end
 
   defp run_judge(dataset, response, judge_prompt) do
-    adapter = Map.get(dataset, :adapter) || ExEval.Adapters.LangChain
+    adapter = Map.get(dataset, :judge_provider) || ExEval.JudgeProvider.LangChain
     config = Map.get(dataset, :config) || %{}
 
     ExEval.Judge.evaluate(
-      ExEval.new(adapter: adapter, config: config),
+      ExEval.new(judge_provider: adapter, config: config),
       response,
       judge_prompt
     )
@@ -290,20 +284,22 @@ defmodule ExEval.Runner do
   defp apply_response_fn(response_fn, input) do
     arity = :erlang.fun_info(response_fn)[:arity]
 
-    case arity do
-      1 ->
-        response_fn.(input)
+    try do
+      case arity do
+        1 ->
+          response_fn.(input)
 
-      2 ->
-        context = Process.get(:eval_context, %{})
-        response_fn.(input, context)
+        2 ->
+          context = Process.get(:eval_context, %{})
+          response_fn.(input, context)
 
-      arity ->
-        raise ArgumentError, "response_fn has arity #{arity}, must be 1 or 2"
+        arity ->
+          raise ArgumentError, "response_fn has arity #{arity}, must be 1 or 2"
+      end
+    rescue
+      _e in FunctionClauseError ->
+        reraise "FunctionClauseError calling response_fn with input #{inspect(input)}. Check that response function has correct arity and accepts the provided input.",
+                __STACKTRACE__
     end
-  rescue
-    _e in FunctionClauseError ->
-      reraise "FunctionClauseError calling response_fn. Check that response function has correct arity and accepts the provided input.",
-              __STACKTRACE__
   end
 end
