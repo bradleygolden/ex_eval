@@ -31,7 +31,7 @@ defmodule ExEval.Runner do
   - `:max_concurrency` - Maximum concurrent evaluations (default: #{@default_max_concurrency})
   - `:timeout` - Timeout per evaluation in ms (default: #{@default_timeout})
   - `:categories` - Filter by specific categories
-  - `:reporter` - Reporter module (default: ExEval.Reporters.Console)
+  - `:reporter` - Reporter module (default: ExEval.Reporter.Console)
   - `:reporter_config` - Configuration for the reporter
   - `:metadata` - Custom metadata to attach to the run
   """
@@ -70,7 +70,7 @@ defmodule ExEval.Runner do
       parallel: true,
       max_concurrency: @default_max_concurrency,
       timeout: @default_timeout,
-      reporter: ExEval.Reporters.Console
+      reporter: ExEval.Reporter.Console
     ]
   end
 

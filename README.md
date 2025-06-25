@@ -474,6 +474,39 @@ ExEval.Runner.run(modules,
 2. **`report_result/3`** - Called after each evaluation. Update progress or stream results.
 3. **`finalize/3`** - Called after all evaluations complete. Generate summaries and clean up.
 
+### Built-in Reporters
+
+ExEval includes these reporters:
+
+- **`ExEval.Reporter.Console`** - Default reporter with colored output and progress dots
+- **`ExEval.Reporter.PubSub`** - Broadcasts real-time updates to Phoenix.PubSub (optional)
+
+#### PubSub Reporter
+
+The PubSub reporter enables real-time progress updates for web interfaces like Phoenix LiveView. It's only available when `phoenix_pubsub` is in your dependencies:
+
+```elixir
+# In your mix.exs
+{:phoenix_pubsub, "~> 2.0"}
+```
+
+Usage:
+
+```elixir
+ExEval.Runner.run(evaluations,
+  reporter: ExEval.Reporter.PubSub,
+  reporter_config: %{
+    pubsub: MyApp.PubSub,  # Required
+    topic: "evaluations:123"  # Optional, defaults to "ex_eval:run:{run_id}"
+  }
+)
+```
+
+The reporter broadcasts these events:
+- `{:evaluation_started, %{run_id, total_cases, started_at, metadata}}`
+- `{:evaluation_progress, %{run_id, result, completed, total, percent}}`
+- `{:evaluation_completed, %{run_id, passed, failed, errors, duration_ms}}`
+
 ## Advanced Features
 
 ### Response Function Arity

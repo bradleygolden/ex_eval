@@ -1,4 +1,4 @@
-defmodule ExEval.Reporters.ConsoleTest do
+defmodule ExEval.Reporter.ConsoleTest do
   use ExUnit.Case
   import ExUnit.CaptureIO
 
@@ -24,7 +24,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          {:ok, _state} = ExEval.Reporters.Console.init(runner, %{trace: true})
+          {:ok, _state} = ExEval.Reporter.Console.init(runner, %{trace: true})
         end)
 
       assert output =~ "Running ExEval with seed:"
@@ -44,7 +44,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          {:ok, _state} = ExEval.Reporters.Console.init(runner, %{trace: true})
+          {:ok, _state} = ExEval.Reporter.Console.init(runner, %{trace: true})
         end)
 
       assert output =~ "Running ExEval with seed:"
@@ -64,7 +64,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          {:ok, _state} = ExEval.Reporters.Console.init(runner, %{trace: false})
+          {:ok, _state} = ExEval.Reporter.Console.init(runner, %{trace: false})
         end)
 
       assert output =~ "Running ExEval with seed:"
@@ -75,11 +75,11 @@ defmodule ExEval.Reporters.ConsoleTest do
   describe "report_result/3" do
     test "prints dot in non-trace mode" do
       result = %{status: :passed}
-      state = %ExEval.Reporters.Console{trace: false, printed_headers: MapSet.new()}
+      state = %ExEval.Reporter.Console{trace: false, printed_headers: MapSet.new()}
 
       output =
         capture_io(fn ->
-          {:ok, _new_state} = ExEval.Reporters.Console.report_result(result, state, %{})
+          {:ok, _new_state} = ExEval.Reporter.Console.report_result(result, state, %{})
         end)
 
       assert output =~ "\e[32m.\e[0m"
@@ -95,7 +95,7 @@ defmodule ExEval.Reporters.ConsoleTest do
         module: MyApp.SecurityEval
       }
 
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: true,
         results: [],
         failed_results: [],
@@ -105,7 +105,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          {:ok, _new_state} = ExEval.Reporters.Console.report_result(result, state, %{})
+          {:ok, _new_state} = ExEval.Reporter.Console.report_result(result, state, %{})
         end)
 
       # Should print inline format with module, category, and test
@@ -131,7 +131,7 @@ defmodule ExEval.Reporters.ConsoleTest do
         ]
       }
 
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: false,
         failed_results: [],
         error_results: [],
@@ -140,7 +140,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          ExEval.Reporters.Console.finalize(runner, state, %{})
+          ExEval.Reporter.Console.finalize(runner, state, %{})
         end)
 
       assert output =~ "3 evaluations, 0 failures"
@@ -167,7 +167,7 @@ defmodule ExEval.Reporters.ConsoleTest do
         results: [failed_result]
       }
 
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: false,
         failed_results: [failed_result],
         error_results: [],
@@ -176,7 +176,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          ExEval.Reporters.Console.finalize(runner, state, %{})
+          ExEval.Reporter.Console.finalize(runner, state, %{})
         end)
 
       assert output =~ "1) test input [validation]"
@@ -205,7 +205,7 @@ defmodule ExEval.Reporters.ConsoleTest do
         results: [error_result]
       }
 
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: false,
         failed_results: [],
         error_results: [error_result],
@@ -214,7 +214,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          ExEval.Reporters.Console.finalize(runner, state, %{})
+          ExEval.Reporter.Console.finalize(runner, state, %{})
         end)
 
       assert output =~ "1) error case [network]"
@@ -244,7 +244,7 @@ defmodule ExEval.Reporters.ConsoleTest do
         results: [failed_result]
       }
 
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: false,
         failed_results: [failed_result],
         error_results: [],
@@ -253,7 +253,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          ExEval.Reporters.Console.finalize(runner, state, %{})
+          ExEval.Reporter.Console.finalize(runner, state, %{})
         end)
 
       assert output =~ "1) Goodbye [conversation]"
@@ -314,7 +314,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       failed_result = Enum.find(runner.results, &(&1.status == :failed))
 
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: false,
         failed_results: [failed_result],
         error_results: [],
@@ -323,7 +323,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          ExEval.Reporters.Console.finalize(runner, state, %{})
+          ExEval.Reporter.Console.finalize(runner, state, %{})
         end)
 
       assert output =~ "1) test3 [auth]"
@@ -342,7 +342,7 @@ defmodule ExEval.Reporters.ConsoleTest do
         results: []
       }
 
-      state1 = %ExEval.Reporters.Console{
+      state1 = %ExEval.Reporter.Console{
         trace: false,
         failed_results: [],
         error_results: [],
@@ -351,7 +351,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output1 =
         capture_io(fn ->
-          ExEval.Reporters.Console.finalize(runner1, state1, %{})
+          ExEval.Reporter.Console.finalize(runner1, state1, %{})
         end)
 
       assert output1 =~ "Finished in 250ms"
@@ -366,7 +366,7 @@ defmodule ExEval.Reporters.ConsoleTest do
         results: []
       }
 
-      state2 = %ExEval.Reporters.Console{
+      state2 = %ExEval.Reporter.Console{
         trace: false,
         failed_results: [],
         error_results: [],
@@ -375,7 +375,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output2 =
         capture_io(fn ->
-          ExEval.Reporters.Console.finalize(runner2, state2, %{})
+          ExEval.Reporter.Console.finalize(runner2, state2, %{})
         end)
 
       assert output2 =~ "Finished in 5.0s"
@@ -417,7 +417,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       failed_result = Enum.find(runner.results, &(&1.status == :failed))
 
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: true,
         failed_results: [failed_result],
         error_results: [],
@@ -427,7 +427,7 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          ExEval.Reporters.Console.finalize(runner, state, %{})
+          ExEval.Reporter.Console.finalize(runner, state, %{})
         end)
 
       assert output =~ "3 evaluations,"
@@ -436,7 +436,7 @@ defmodule ExEval.Reporters.ConsoleTest do
     end
 
     test "prints inline format for each result" do
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: true,
         failed_results: [],
         error_results: [],
@@ -462,8 +462,8 @@ defmodule ExEval.Reporters.ConsoleTest do
 
       output =
         capture_io(fn ->
-          {:ok, state} = ExEval.Reporters.Console.report_result(result1, state, %{})
-          {:ok, _} = ExEval.Reporters.Console.report_result(result2, state, %{})
+          {:ok, state} = ExEval.Reporter.Console.report_result(result1, state, %{})
+          {:ok, _} = ExEval.Reporter.Console.report_result(result2, state, %{})
         end)
 
       # Each result on its own line with inline format
@@ -476,7 +476,7 @@ defmodule ExEval.Reporters.ConsoleTest do
     end
 
     test "prints results from different modules inline" do
-      state = %ExEval.Reporters.Console{
+      state = %ExEval.Reporter.Console{
         trace: true,
         failed_results: [],
         error_results: [],
@@ -503,7 +503,7 @@ defmodule ExEval.Reporters.ConsoleTest do
       output =
         capture_io(fn ->
           Enum.reduce(results, state, fn result, acc_state ->
-            {:ok, new_state} = ExEval.Reporters.Console.report_result(result, acc_state, %{})
+            {:ok, new_state} = ExEval.Reporter.Console.report_result(result, acc_state, %{})
             new_state
           end)
         end)

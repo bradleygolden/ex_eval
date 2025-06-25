@@ -1,4 +1,4 @@
-defmodule ExEval.Reporters.Console do
+defmodule ExEval.Reporter.Console do
   @moduledoc """
   Console reporter for ExEval evaluation results.
 

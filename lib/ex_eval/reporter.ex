@@ -63,4 +63,89 @@ defmodule ExEval.Reporter do
   Use this to print summaries, close files, finalize reports, etc.
   """
   @callback finalize(runner(), state :: any(), config()) :: :ok | {:error, reason :: any()}
+
+  @doc """
+  Check if the PubSub reporter is available.
+
+  Returns true if Phoenix.PubSub is loaded and the reporter module is defined.
+
+  ## Examples
+
+      iex> ExEval.Reporter.pubsub_available?()
+      false  # Unless phoenix_pubsub is in deps
+
+  """
+  def pubsub_available? do
+    Code.ensure_loaded?(Phoenix.PubSub)
+  end
+
+  @doc """
+  List all available reporters.
+
+  Returns a list of reporter modules that are currently loaded and available.
+
+  ## Examples
+
+      iex> ExEval.Reporter.available_reporters()
+      [ExEval.Reporter.Console]
+
+  """
+  def available_reporters do
+    base_reporters = [ExEval.Reporter.Console]
+
+    optional_reporters =
+      if pubsub_available?() do
+        [ExEval.Reporter.PubSub]
+      else
+        []
+      end
+
+    base_reporters ++ optional_reporters
+  end
+
+  @doc """
+  Get information about a reporter's requirements.
+
+  Returns a map with information about what the reporter needs to function.
+
+  ## Examples
+
+      iex> ExEval.Reporter.reporter_info(ExEval.Reporter.Console)
+      %{
+        name: "Console",
+        description: "Outputs results to the console",
+        required_deps: [],
+        required_config: []
+      }
+
+  """
+  def reporter_info(reporter_module) when is_atom(reporter_module) do
+    case reporter_module do
+      ExEval.Reporter.Console ->
+        %{
+          name: "Console",
+          description: "Outputs evaluation results to the console with colored output",
+          required_deps: [],
+          required_config: [],
+          optional_config: [:trace]
+        }
+
+      ExEval.Reporter.PubSub ->
+        %{
+          name: "PubSub",
+          description: "Broadcasts evaluation results to Phoenix.PubSub for real-time updates",
+          required_deps: [:phoenix_pubsub],
+          required_config: [:pubsub],
+          optional_config: [:topic, :broadcast_results]
+        }
+
+      _ ->
+        %{
+          name: inspect(reporter_module),
+          description: "Custom reporter",
+          required_deps: :unknown,
+          required_config: :unknown
+        }
+    end
+  end
 end

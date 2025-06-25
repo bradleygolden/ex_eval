@@ -49,6 +49,10 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
 ### Core Components
 
 1. **ExEval.DatasetProvider** - Behaviour for dataset providers that load evaluation cases from various sources
+   - Optional CRUD callbacks for GUI support: `create_evaluation/1`, `update_evaluation/2`, `delete_evaluation/1`
+   - Case management callbacks: `create_case/2`, `update_case/3`, `delete_case/2`
+   - Import/export callbacks: `import_cases/3`, `export_cases/2`
+   - Capability detection via `get_capabilities/1` for UI feature discovery
 
 2. **ExEval.DatasetProvider.Module** - Module-based dataset provider with macro DSL implementation.
    - `response_fn` - Function that generates AI responses to evaluate
@@ -65,16 +69,25 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
    - Parallel execution support (configurable concurrency)
    - Multi-turn conversation handling
    - Category filtering
-   - Progress reporting via ConsoleReporter
+   - Progress reporting via Reporter modules
+   - Run identity tracking with auto-generated UUIDs
+   - Custom metadata support for run context
 
 5. **Judge Provider System** - Pluggable LLM provider interface:
    - `ExEval.JudgeProvider` behavior defines the contract
    - `ExEval.JudgeProvider.LangChain` - Default OpenAI judge provider
    - Mock judge provider in `evals/support/judge_provider/eval_mock.ex` for testing
 
+6. **Reporter System** - Pluggable output and monitoring interface:
+   - `ExEval.Reporter` behavior for custom output formats
+   - `ExEval.Reporter.Console` - Default colored console output
+   - `ExEval.Reporter.PubSub` - Phoenix.PubSub integration for real-time updates (optional)
+   - Helper functions: `pubsub_available?/0`, `available_reporters/0`, `reporter_info/1`
+
 ### Directory Structure
 
 - `lib/ex_eval/` - Core framework code
+  - `lib/ex_eval/reporter/` - Reporter implementations (Console, PubSub)
 - `lib/mix/tasks/eval.ex` - Mix task for running evaluations
 - `evals/` - Example evaluation suites (compiled only in dev/test)
 - `evals/support/` - Support code like mock judge provider (dev/test only)
@@ -104,6 +117,37 @@ When extending ExEval:
 - Unit tests focus on core logic (Judge, Runner, etc.)
 - Mock judge provider enables testing without real LLM calls
 - Example evals in `evals/` demonstrate usage and serve as integration tests
+
+### Phoenix LiveView Integration
+
+ExEval supports real-time evaluation monitoring through the PubSub reporter:
+
+1. **Add phoenix_pubsub dependency**:
+   ```elixir
+   {:phoenix_pubsub, "~> 2.0"}
+   ```
+
+2. **Configure the PubSub reporter**:
+   ```elixir
+   ExEval.Runner.run(evaluations,
+     reporter: ExEval.Reporter.PubSub,
+     reporter_config: %{
+       pubsub: MyApp.PubSub,
+       topic: "evaluations:#{run_id}",
+       broadcast_results: true  # Include full results in progress events
+     }
+   )
+   ```
+
+3. **Subscribe to events in LiveView**:
+   ```elixir
+   Phoenix.PubSub.subscribe(MyApp.PubSub, "evaluations:#{run_id}")
+   
+   # Receive events:
+   # {:evaluation_started, %{run_id, total_cases, started_at, metadata}}
+   # {:evaluation_progress, %{run_id, result, completed, total, percent}}
+   # {:evaluation_completed, %{run_id, passed, failed, errors, duration_ms}}
+   ```
 
 ## Memory
 

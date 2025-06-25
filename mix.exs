@@ -28,7 +28,8 @@ defmodule ExEval.MixProject do
   defp deps do
     [
       {:langchain, "~> 0.3.0", optional: true},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:phoenix_pubsub, "~> 2.0", optional: true}
     ]
   end
 

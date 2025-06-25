@@ -169,7 +169,7 @@ ExEval uses a provider pattern for extensibility:
 
 Output is handled through the Reporter behaviour:
 - `ExEval.Reporter` - Behaviour for output handling
-- `ExEval.Reporters.Console` - Default streaming console output
+- `ExEval.Reporter.Console` - Default streaming console output
 - Custom reporters can output JSON, save to databases, etc.
 
 ### Streaming Output
