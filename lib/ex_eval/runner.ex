@@ -115,8 +115,7 @@ defmodule ExEval.Runner do
     Task.async_stream(
       cases,
       fn {dataset, eval_case, response_fn, context} ->
-        Process.put(:eval_context, context)
-        run_eval_case(eval_case, response_fn, dataset, runner)
+        run_eval_case(eval_case, response_fn, dataset, context, runner)
       end,
       max_concurrency: runner.options[:max_concurrency],
       timeout: runner.options[:timeout]
@@ -161,8 +160,6 @@ defmodule ExEval.Runner do
             %{}
           end
 
-        Process.put(:eval_context, context)
-
         eval_cases = dataset.cases
         response_fn = dataset.response_fn
 
@@ -170,7 +167,7 @@ defmodule ExEval.Runner do
           eval_cases
           |> filter_by_categories(runner.options[:categories])
           |> Enum.reduce({[], state_acc}, fn eval_case, {case_results, state} ->
-            result = run_eval_case(eval_case, response_fn, dataset, runner)
+            result = run_eval_case(eval_case, response_fn, dataset, context, runner)
             {:ok, updated_state} = reporter_module.report_result(result, state, reporter_config)
             {[result | case_results], updated_state}
           end)
@@ -190,13 +187,12 @@ defmodule ExEval.Runner do
     end)
   end
 
-  defp run_eval_case(eval_case, response_fn, dataset, _runner) do
+  defp run_eval_case(eval_case, response_fn, dataset, context, _runner) do
     start_time = System.monotonic_time(:millisecond)
 
     result =
       try do
-        Process.put(:ex_eval_conversation_responses, [])
-        {response, judge_prompt} = get_response_and_prompt(eval_case, response_fn)
+        {response, judge_prompt} = get_response_and_prompt(eval_case, response_fn, context)
         judge_result = run_judge(dataset, response, judge_prompt)
         format_judge_result(judge_result, response)
       catch
@@ -220,28 +216,25 @@ defmodule ExEval.Runner do
     })
   end
 
-  defp get_response_and_prompt(eval_case, response_fn) do
+  defp get_response_and_prompt(eval_case, response_fn, context) do
     case Map.get(eval_case, :input) do
       inputs when is_list(inputs) ->
-        responses = run_conversation(inputs, response_fn)
+        responses = run_conversation(inputs, response_fn, context)
         {List.last(responses), Map.get(eval_case, :judge_prompt)}
 
       input ->
-        {apply_response_fn(response_fn, input), Map.get(eval_case, :judge_prompt)}
+        {apply_response_fn(response_fn, input, context, []), Map.get(eval_case, :judge_prompt)}
     end
   end
 
-  defp run_conversation(inputs, response_fn) do
-    Enum.map(inputs, fn input ->
-      resp = apply_response_fn(response_fn, input)
+  defp run_conversation(inputs, response_fn, context) do
+    {responses, _} =
+      Enum.map_reduce(inputs, [], fn input, conversation_history ->
+        resp = apply_response_fn(response_fn, input, context, conversation_history)
+        {resp, conversation_history ++ [resp]}
+      end)
 
-      Process.put(
-        :ex_eval_conversation_responses,
-        Process.get(:ex_eval_conversation_responses, []) ++ [resp]
-      )
-
-      resp
-    end)
+    responses
   end
 
   defp run_judge(dataset, response, judge_prompt) do
@@ -281,7 +274,7 @@ defmodule ExEval.Runner do
   defp get_module_from_dataset(%{metadata: %{module: module}}), do: module
   defp get_module_from_dataset(_), do: nil
 
-  defp apply_response_fn(response_fn, input) do
+  defp apply_response_fn(response_fn, input, context, conversation_history) do
     arity = :erlang.fun_info(response_fn)[:arity]
 
     try do
@@ -290,11 +283,14 @@ defmodule ExEval.Runner do
           response_fn.(input)
 
         2 ->
-          context = Process.get(:eval_context, %{})
           response_fn.(input, context)
 
+        3 ->
+          # New arity for functions that want conversation history
+          response_fn.(input, context, conversation_history)
+
         arity ->
-          raise ArgumentError, "response_fn has arity #{arity}, must be 1 or 2"
+          raise ArgumentError, "response_fn has arity #{arity}, must be 1, 2, or 3"
       end
     rescue
       _e in FunctionClauseError ->

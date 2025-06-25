@@ -14,7 +14,7 @@ defmodule LangChainOpenAIEval do
   """
 
   use ExEval.Dataset,
-    response_fn: &__MODULE__.generate_ai_response/1,
+    response_fn: &__MODULE__.generate_ai_response/2,
     judge_provider: ExEval.JudgeProvider.LangChain,
     config: %{
       model: "gpt-4.1-mini",
@@ -29,9 +29,7 @@ defmodule LangChainOpenAIEval do
     }
   end
 
-  def generate_ai_response(input) do
-    context = Process.get(:eval_context, %{})
-    
+  def generate_ai_response(input, context) do
     case input do
         "What is 2+2?" ->
         "2+2 equals 4"

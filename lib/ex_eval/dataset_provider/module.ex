@@ -60,23 +60,10 @@ defmodule ExEval.DatasetProvider.Module do
   def list_evaluations(opts \\ []) do
     path = Keyword.get(opts, :path, "evals/**/*_eval.exs")
 
-    # Use process dictionary for simple caching during test runs
-    cache_key = {:ex_eval_module_cache, path}
-
-    case Process.get(cache_key) do
-      nil ->
-        modules =
-          path
-          |> Path.wildcard()
-          |> Enum.flat_map(&compile_and_extract_modules/1)
-          |> Enum.filter(&has_eval_dataset?/1)
-
-        Process.put(cache_key, modules)
-        modules
-
-      cached_modules ->
-        cached_modules
-    end
+    path
+    |> Path.wildcard()
+    |> Enum.flat_map(&compile_and_extract_modules/1)
+    |> Enum.filter(&has_eval_dataset?/1)
   end
 
   @impl ExEval.DatasetProvider
@@ -127,11 +114,8 @@ defmodule ExEval.DatasetProvider.Module do
     end)
   end
 
-  # Private helper functions
-
   defp compile_and_extract_modules(file) do
     try do
-      # Compile with ignore_module_conflict to suppress redefinition warnings
       original_opts = Code.compiler_options()
       Code.compiler_options(ignore_module_conflict: true)
 
@@ -139,7 +123,6 @@ defmodule ExEval.DatasetProvider.Module do
         Code.compile_file(file)
         |> Enum.map(fn {module, _bytecode} -> module end)
 
-      # Restore original compiler options
       Code.compiler_options(original_opts)
       result
     rescue

@@ -37,7 +37,7 @@ Add `ex_eval` to your dependencies:
 ```elixir
 def deps do
   [
-    {:ex_eval, github: "bradleygolden/ex_eval", branch: "master"},
+    {:ex_eval, github: "bradleygolden/ex_eval", branch: "main"},
     # If using the default LangChain judge provider:
     {:langchain, "~> 0.3.0"}
   ]
@@ -478,7 +478,7 @@ ExEval.Runner.run(modules,
 
 ### Response Function Arity
 
-Your response function can accept either 1 or 2 arguments:
+Your response function can accept 1, 2, or 3 arguments:
 
 ```elixir
 # Single argument - just the input
@@ -490,6 +490,12 @@ end
 def response_fn(input, context) do
   # Use both input and context to generate response
   # Context comes from the dataset_setup/0 function
+end
+
+# Three arguments - input, context, and conversation history (for multi-turn)
+def response_fn(input, context, conversation_history) do
+  # Access previous responses in the conversation
+  # conversation_history is a list of previous responses
 end
 ```
 
@@ -518,14 +524,15 @@ defmodule MyApp.ContextualEval do
 end
 ```
 
-### Process Dictionary Usage
+### State Management
 
-ExEval uses the process dictionary for maintaining state during evaluations:
+ExEval uses functional state passing for maintaining evaluation state:
 
-- `:eval_context` - Stores the context from `dataset_setup/0` for access within the evaluation process
-- `:ex_eval_conversation_responses` - Tracks conversation history for multi-turn evaluations
+- Context from `dataset_setup/0` is passed explicitly to response functions
+- Conversation history for multi-turn evaluations is accumulated functionally
+- No process dictionary usage - all state is passed through function arguments
 
-This is an implementation detail that advanced users might need to know if they're debugging or extending the framework. The process dictionary is cleaned up between evaluation runs to ensure isolation.
+This approach ensures better testability, clearer data flow, and avoids hidden dependencies.
 
 ## License
 
