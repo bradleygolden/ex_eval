@@ -68,7 +68,7 @@ defmodule ExEval.Reporters.Console do
 
   defp print_header(runner, _state) do
     total_count =
-      runner.modules
+      runner.datasets
       |> Enum.reduce(0, fn dataset, acc ->
         cases = Map.get(dataset, :cases, [])
         acc + Enum.count(cases)

@@ -32,8 +32,10 @@ defmodule ExEval.Reporter do
   The runner state containing all evaluation information.
   """
   @type runner :: %ExEval.Runner{
-          modules: list(),
+          id: String.t(),
+          datasets: list(),
           options: keyword(),
+          metadata: map(),
           results: list(result()),
           started_at: DateTime.t() | nil,
           finished_at: DateTime.t() | nil

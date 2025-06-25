@@ -15,8 +15,10 @@ defmodule ExEval.Reporters.ConsoleTest do
       }
 
       runner = %ExEval.Runner{
-        modules: [dataset1, dataset2],
+        id: "test-run-id",
+        datasets: [dataset1, dataset2],
         options: [parallel: true, trace: true],
+        metadata: %{},
         started_at: DateTime.utc_now()
       }
 
@@ -33,8 +35,10 @@ defmodule ExEval.Reporters.ConsoleTest do
       dataset = %{cases: [%{input: "test", judge_prompt: "test"}], response_fn: fn _ -> "ok" end}
 
       runner = %ExEval.Runner{
-        modules: [dataset],
+        id: "test-run-id",
+        datasets: [dataset],
         options: [parallel: false, categories: ["security", "performance"], trace: true],
+        metadata: %{},
         started_at: DateTime.utc_now()
       }
 
@@ -51,8 +55,10 @@ defmodule ExEval.Reporters.ConsoleTest do
       dataset = %{cases: [], response_fn: fn _ -> "ok" end}
 
       runner = %ExEval.Runner{
-        modules: [dataset],
+        id: "test-run-id",
+        datasets: [dataset],
         options: [parallel: false, trace: false],
+        metadata: %{},
         started_at: DateTime.utc_now()
       }
 
@@ -112,8 +118,10 @@ defmodule ExEval.Reporters.ConsoleTest do
   describe "finalize/3" do
     test "prints summary with passed results" do
       runner = %ExEval.Runner{
-        modules: [],
+        id: "test-run-id",
+        datasets: [],
         options: [trace: false],
+        metadata: %{},
         started_at: ~U[2024-01-01 12:00:00Z],
         finished_at: ~U[2024-01-01 12:00:01Z],
         results: [
@@ -150,8 +158,10 @@ defmodule ExEval.Reporters.ConsoleTest do
       }
 
       runner = %ExEval.Runner{
-        modules: [],
+        id: "test-run-id",
+        datasets: [],
         options: [trace: false],
+        metadata: %{},
         started_at: ~U[2024-01-01 12:00:00Z],
         finished_at: ~U[2024-01-01 12:00:00.500Z],
         results: [failed_result]
@@ -186,8 +196,10 @@ defmodule ExEval.Reporters.ConsoleTest do
       }
 
       runner = %ExEval.Runner{
-        modules: [],
+        id: "test-run-id",
+        datasets: [],
         options: [trace: false],
+        metadata: %{},
         started_at: DateTime.utc_now(),
         finished_at: DateTime.utc_now(),
         results: [error_result]
@@ -223,8 +235,10 @@ defmodule ExEval.Reporters.ConsoleTest do
       }
 
       runner = %ExEval.Runner{
-        modules: [],
+        id: "test-run-id",
+        datasets: [],
         options: [trace: false],
+        metadata: %{},
         started_at: DateTime.utc_now(),
         finished_at: DateTime.utc_now(),
         results: [failed_result]
@@ -248,8 +262,10 @@ defmodule ExEval.Reporters.ConsoleTest do
 
     test "shows failures and summary" do
       runner = %ExEval.Runner{
-        modules: [],
+        id: "test-run-id",
+        datasets: [],
         options: [trace: false],
+        metadata: %{},
         started_at: DateTime.utc_now(),
         finished_at: DateTime.utc_now(),
         results: [
@@ -317,8 +333,10 @@ defmodule ExEval.Reporters.ConsoleTest do
 
     test "formats duration correctly" do
       runner1 = %ExEval.Runner{
-        modules: [],
+        id: "test-run-id",
+        datasets: [],
         options: [trace: false],
+        metadata: %{},
         started_at: ~U[2024-01-01 12:00:00.000Z],
         finished_at: ~U[2024-01-01 12:00:00.250Z],
         results: []
@@ -339,8 +357,10 @@ defmodule ExEval.Reporters.ConsoleTest do
       assert output1 =~ "Finished in 250ms"
 
       runner2 = %ExEval.Runner{
-        modules: [],
+        id: "test-run-id",
+        datasets: [],
         options: [trace: false],
+        metadata: %{},
         started_at: ~U[2024-01-01 12:00:00Z],
         finished_at: ~U[2024-01-01 12:00:05Z],
         results: []
@@ -363,8 +383,10 @@ defmodule ExEval.Reporters.ConsoleTest do
 
     test "prints simple summary in trace mode" do
       runner = %ExEval.Runner{
-        modules: [],
+        id: "test-run-id",
+        datasets: [],
         options: [trace: true],
+        metadata: %{},
         started_at: ~U[2024-01-01 12:00:00Z],
         finished_at: ~U[2024-01-01 12:00:01Z],
         results: [

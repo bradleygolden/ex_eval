@@ -16,7 +16,7 @@ defmodule ExEval.Reporter.TestMock do
       test_pid,
       {:eval_started,
        %{
-         total_count: length(runner.modules),
+         total_count: length(runner.datasets),
          seed: :rand.uniform(999_999)
        }}
     )

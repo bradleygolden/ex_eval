@@ -14,8 +14,10 @@ defmodule ExEval.Runner do
   @default_max_concurrency 5
 
   defstruct [
-    :modules,
+    :id,
+    :datasets,
     :options,
+    :metadata,
     results: [],
     started_at: nil,
     finished_at: nil
@@ -31,13 +33,16 @@ defmodule ExEval.Runner do
   - `:categories` - Filter by specific categories
   - `:reporter` - Reporter module (default: ExEval.Reporters.Console)
   - `:reporter_config` - Configuration for the reporter
+  - `:metadata` - Custom metadata to attach to the run
   """
   def run(items, opts \\ []) when is_list(items) do
     datasets = Enum.map(items, &normalize_to_dataset/1)
 
     runner = %__MODULE__{
-      modules: datasets,
+      id: generate_run_id(),
+      datasets: datasets,
       options: Keyword.merge(default_options(), opts),
+      metadata: Keyword.get(opts, :metadata, %{}),
       started_at: DateTime.utc_now()
     }
 
@@ -89,7 +94,7 @@ defmodule ExEval.Runner do
   end
 
   defp prepare_all_cases(runner) do
-    runner.modules
+    runner.datasets
     |> Enum.flat_map(fn dataset ->
       context = get_dataset_context(dataset)
       eval_cases = dataset.cases
@@ -151,7 +156,7 @@ defmodule ExEval.Runner do
 
   defp run_sequential(runner, reporter_module, reporter_state, reporter_config) do
     {results, final_state} =
-      runner.modules
+      runner.datasets
       |> Enum.reduce({[], reporter_state}, fn dataset, {results_acc, state_acc} ->
         context =
           if dataset.setup_fn do
@@ -273,6 +278,11 @@ defmodule ExEval.Runner do
 
   defp get_module_from_dataset(%{metadata: %{module: module}}), do: module
   defp get_module_from_dataset(_), do: nil
+
+  defp generate_run_id do
+    :crypto.strong_rand_bytes(16)
+    |> Base.encode16(case: :lower)
+  end
 
   defp apply_response_fn(response_fn, input, context, conversation_history) do
     arity = :erlang.fun_info(response_fn)[:arity]
