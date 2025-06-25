@@ -33,7 +33,7 @@ end
 
 ### Dataset Setup
 - Use `dataset_setup` for persistent context across evaluations
-- Access context via `Process.get(:eval_context)` in response functions
+- Context is passed as the second argument to response functions
 
 ## Environment Configuration
 
@@ -70,7 +70,8 @@ config :ex_eval,
 ### Response Functions
 - Should handle errors gracefully
 - Return string responses only
-- Can access evaluation context via Process dictionary
+- Can accept 1, 2, or 3 arguments (input, context, conversation_history)
+- Context from `dataset_setup` is passed as the second argument
 
 ## Mix Task Usage
 
@@ -154,40 +155,6 @@ end
 3. Verify response function returns strings
 4. Ensure judge prompts are YES/NO answerable
 5. Use mock judge provider for isolated testing
-
-## Code Review
-
-### Using the Review Binary
-
-ExEval includes a Claude-powered review tool accessible via mise:
-
-```bash
-# Basic review
-review
-
-# Custom context review
-review "Focus on specific aspects like security"
-```
-
-### Review Checks
-
-The review tool automatically:
-- Validates code formatting
-- Runs full test suite
-- Checks for compilation warnings
-- Finds debugging statements in production code
-- Identifies TODO/FIXME comments
-- Verifies evaluations execute properly
-- Reviews code quality and patterns
-- Validates documentation generation
-
-### Claude Code Slash Command
-
-Within Claude Code sessions:
-```
-/project:review
-/project:review Check for performance issues
-```
 
 ## Architecture Notes
 

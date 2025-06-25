@@ -88,7 +88,7 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
 
 3. **LLM-as-Judge Pattern**: Evaluations use natural language criteria judged by an LLM, returning structured YES/NO responses with reasoning.
 
-4. **Process Dictionary for State**: Multi-turn conversations use the process dictionary to maintain conversation history within evaluation runs.
+4. **Functional State Management**: Multi-turn conversations pass conversation history explicitly through function arguments, avoiding global state.
 
 ### Adding New Features
 
