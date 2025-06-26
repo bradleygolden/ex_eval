@@ -121,7 +121,7 @@ Add your evaluation module:
 
 ```elixir
 defmodule MyApp.CustomerSupportEval do
-  use ExEval.Dataset, response_fn: &MyApp.AI.chat/1
+  use ExEval.DatasetProvider.Module, response_fn: &MyApp.AI.chat/1
 
   eval_dataset [
     %{
@@ -227,7 +227,7 @@ The `ExEval.Dataset` macro transforms your evaluation module into a test suite. 
 
 ```elixir
 defmodule MyEval do
-  use ExEval.Dataset, response_fn: &MyEval.get_response/1
+  use ExEval.DatasetProvider.Module, response_fn: &MyEval.get_response/1
 
   def get_response(input) do
     # This function receives the input from each test case
@@ -278,7 +278,7 @@ Use `dataset_setup` to provide context that persists across the evaluation:
 
 ```elixir
 defmodule MyEval do
-  use ExEval.Dataset, response_fn: &MyEval.get_response/1
+  use ExEval.DatasetProvider.Module, response_fn: &MyEval.get_response/1
 
   dataset_setup do
     %{
@@ -304,7 +304,7 @@ end
 You can override the default judge provider for specific evaluations:
 
 ```elixir
-use ExEval.Dataset,
+use ExEval.DatasetProvider.Module,
   response_fn: &MyEval.get_response/1,
   judge_provider: MyApp.StrictJudgeProvider,
   config: %{temperature: 0.0}
@@ -507,6 +507,120 @@ The reporter broadcasts these events:
 - `{:evaluation_progress, %{run_id, result, completed, total, percent}}`
 - `{:evaluation_completed, %{run_id, passed, failed, errors, duration_ms}}`
 
+## Async Runner Architecture
+
+ExEval supports both synchronous and asynchronous execution modes to fit different use cases.
+
+### Sync vs Async Usage
+
+**For simple CLI usage or testing** (like `mix ai.eval`), no additional setup is required. ExEval will run synchronously without needing the OTP application.
+
+**For async execution, real-time monitoring, or Phoenix LiveView integration**, you need to start the ExEval OTP application.
+
+### Starting the ExEval Application (for async features only)
+
+ExEval includes an OTP application that manages evaluation runners. Add it to your application supervision tree:
+
+```elixir
+# In your application.ex
+def start(_type, _args) do
+  children = [
+    # ... your other children
+    {ExEval.Application, []}
+  ]
+  
+  opts = [strategy: :one_for_one, name: MyApp.Supervisor]
+  Supervisor.start_link(children, opts)
+end
+```
+
+The ExEval application starts:
+- `ExEval.RunnerRegistry` - Registry for tracking active evaluation runs
+- `ExEval.RunnerSupervisor` - Dynamic supervisor for runner processes
+- `ExEval.PubSub` (optional) - Phoenix.PubSub instance for real-time updates
+
+### Async Execution
+
+The runner now supports both async and sync execution modes:
+
+```elixir
+# Async execution (returns immediately with run_id)
+{:ok, run_id} = ExEval.Runner.run([MyEval1, MyEval2])
+
+# Check status of a running evaluation
+{:ok, state} = ExEval.Runner.get_run(run_id)
+
+# Subscribe to real-time updates
+ExEval.Runner.subscribe(run_id)
+
+# Receive updates
+receive do
+  {:runner_update, ^run_id, %{status: :completed} = state} ->
+    IO.puts("Evaluation completed!")
+end
+
+# List all active runs
+active_runs = ExEval.Runner.list_active_runs()
+
+# Cancel a running evaluation
+ExEval.Runner.cancel_run(run_id)
+```
+
+### Sync Execution
+
+For backwards compatibility or when you need blocking execution:
+
+```elixir
+# Sync execution (blocks until complete)
+result = ExEval.Runner.run_sync([MyEval1, MyEval2], timeout: 60_000)
+```
+
+### Real-time Updates with LiveView
+
+The async runner is designed for seamless integration with Phoenix LiveView:
+
+```elixir
+defmodule MyAppWeb.EvaluationLive do
+  use MyAppWeb, :live_view
+  
+  def mount(_params, _session, socket) do
+    {:ok, assign(socket, runs: [], current_run: nil)}
+  end
+  
+  def handle_event("start_evaluation", _params, socket) do
+    {:ok, run_id} = ExEval.Runner.run([MyEval])
+    
+    # Subscribe to updates
+    ExEval.Runner.subscribe(run_id)
+    
+    {:noreply, assign(socket, current_run: run_id)}
+  end
+  
+  def handle_info({:runner_update, run_id, state}, socket) do
+    # Update UI with evaluation progress
+    {:noreply, assign(socket, 
+      runs: update_run_state(socket.assigns.runs, run_id, state)
+    )}
+  end
+end
+```
+
+### Run Metadata
+
+You can attach custom metadata to evaluation runs:
+
+```elixir
+{:ok, run_id} = ExEval.Runner.run([MyEval],
+  metadata: %{
+    user_id: current_user.id,
+    triggered_by: "manual",
+    environment: "staging"
+  }
+)
+```
+
+This metadata is included in all runner events and can be used for tracking and filtering.
+
 ## Advanced Features
 
 ### Response Function Arity
@@ -536,7 +650,7 @@ Example with context:
 
 ```elixir
 defmodule MyApp.ContextualEval do
-  use ExEval.Dataset, response_fn: &MyApp.AI.chat_with_context/2
+  use ExEval.DatasetProvider.Module, response_fn: &MyApp.AI.chat_with_context/2
 
   dataset_setup do
     # This context will be passed as the second argument to your response function

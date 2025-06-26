@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Usage Rules
 
 For detailed usage guidelines and best practices, see [usage-rules.md](./usage-rules.md). This file contains comprehensive rules for:
-- Writing evaluation modules using ExEval.Dataset
+- Writing evaluation modules using ExEval.DatasetProvider.Module
 - Configuring the evaluation environment
 - Creating effective judge prompts
 - Running evaluations with mix ai.eval
@@ -44,7 +44,16 @@ mix ai.eval --category security # Run only security evaluations
 
 ## Architecture Overview
 
-ExEval is a dataset-oriented evaluation framework for AI/LLM applications using the LLM-as-judge pattern. The architecture consists of:
+ExEval is a dataset-oriented evaluation framework for AI/LLM applications using the LLM-as-judge pattern. It includes an OTP application with supervision tree for managing async evaluation runs.
+
+### OTP Application Structure
+
+The `ExEval.Application` starts a supervision tree with:
+- **ExEval.RunnerRegistry** - Registry for tracking active evaluation runs by ID
+- **ExEval.RunnerSupervisor** - DynamicSupervisor for spawning runner processes
+- **ExEval.PubSub** (optional) - Phoenix.PubSub instance for real-time updates
+
+The architecture consists of:
 
 ### Core Components
 
@@ -65,13 +74,16 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
    - Calling the configured judge provider (LLM) to judge responses
    - Parsing YES/NO judgments with reasoning
 
-4. **ExEval.Runner** - Executes evaluation suites with:
-   - Parallel execution support (configurable concurrency)
-   - Multi-turn conversation handling
-   - Category filtering
-   - Progress reporting via Reporter modules
-   - Run identity tracking with auto-generated UUIDs
-   - Custom metadata support for run context
+4. **ExEval.Runner** - Async-first GenServer implementation for executing evaluation suites:
+   - **Async execution**: `run/2` returns `{:ok, run_id}` immediately
+   - **Sync execution**: `run_sync/2` for blocking execution with timeout support
+   - **Process supervision**: All runners are supervised by `ExEval.RunnerSupervisor`
+   - **Registry tracking**: Active runs tracked in `ExEval.RunnerRegistry`
+   - **Real-time updates**: Broadcasts progress via Phoenix.PubSub
+   - **Lifecycle management**: `get_run/2`, `list_active_runs/1`, `cancel_run/2`
+   - **Parallel execution**: Configurable concurrency with Task.async_stream
+   - **Multi-turn conversations**: Functional state passing for conversation history
+   - **Run metadata**: Custom metadata support for tracking and filtering
 
 5. **Judge Provider System** - Pluggable LLM provider interface:
    - `ExEval.JudgeProvider` behavior defines the contract
@@ -95,13 +107,13 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
 
 ### Key Design Patterns
 
-1. **Compile-time Macro Expansion**: The Dataset macro generates functions at compile time, allowing response functions to be regular Elixir functions while maintaining a data-oriented API.
+1. **Compile-time Macro Expansion**: The DatasetProvider.Module macro generates functions at compile time, allowing response functions to be regular Elixir functions while maintaining a data-oriented API.
 
 2. **Environment-based Compilation**: Uses `elixirc_paths` in mix.exs to exclude test/eval code from production builds.
 
 3. **LLM-as-Judge Pattern**: Evaluations use natural language criteria judged by an LLM, returning structured YES/NO responses with reasoning.
 
-4. **Functional State Management**: Multi-turn conversations pass conversation history explicitly through function arguments, avoiding global state.
+4. **Functional State Management**: Multi-turn conversations pass conversation history explicitly through function arguments, avoiding global state. Response functions can receive up to 3 arguments: (input, context, conversation_history).
 
 ### Adding New Features
 
@@ -146,7 +158,7 @@ ExEval supports real-time evaluation monitoring through the PubSub reporter:
    # Receive events:
    # {:evaluation_started, %{run_id, total_cases, started_at, metadata}}
    # {:evaluation_progress, %{run_id, result, completed, total, percent}}
-   # {:evaluation_completed, %{run_id, passed, failed, errors, duration_ms}}
+   # {:evaluation_completed, %{run_id, passed, failed, errors, duration_ms, metadata, finished_at}}
    ```
 
 ## Memory

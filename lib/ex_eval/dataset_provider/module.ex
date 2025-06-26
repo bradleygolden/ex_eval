@@ -11,7 +11,7 @@ defmodule ExEval.DatasetProvider.Module do
   Define evaluations using the DSL:
 
       defmodule MyEval do
-        use ExEval.Dataset
+        use ExEval.DatasetProvider.Module
         
         eval_dataset [
           %{
@@ -46,9 +46,24 @@ defmodule ExEval.DatasetProvider.Module do
               "Expected module using `use ExEval.Dataset`."
     end
 
+    response_fn =
+      case module.__ex_eval_response_fn__() do
+        nil ->
+          # Fall back to direct function
+          cond do
+            function_exported?(module, :response_fn, 1) -> &module.response_fn/1
+            function_exported?(module, :response_fn, 2) -> &module.response_fn/2
+            function_exported?(module, :response_fn, 3) -> &module.response_fn/3
+            true -> nil
+          end
+
+        func ->
+          func
+      end
+
     %{
       cases: module.__ex_eval_eval_cases__(),
-      response_fn: module.__ex_eval_response_fn__(),
+      response_fn: response_fn,
       judge_provider: get_adapter(module),
       config: get_config(module),
       setup_fn: get_setup_fn(module),

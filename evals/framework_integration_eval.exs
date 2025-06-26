@@ -10,7 +10,7 @@ defmodule FrameworkIntegrationEval do
   - Reports results properly
   """
 
-  use ExEval.Dataset,
+  use ExEval.DatasetProvider.Module,
     response_fn: &__MODULE__.test_response/1,
     judge_provider: ExEval.JudgeProvider.EvalMock,
     config: %{

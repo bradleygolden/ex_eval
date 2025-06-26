@@ -57,8 +57,8 @@ defmodule ExEval.Reporter.Console do
 
   @impl ExEval.Reporter
   def finalize(runner, state, _config) do
-    # No need to print trace results in finalize since we print them as we go
-    if !state.trace do
+    # Print newline after dots only if we printed any
+    if !state.trace && length(runner.results) > 0 do
       IO.puts("")
     end
 
@@ -67,15 +67,14 @@ defmodule ExEval.Reporter.Console do
   end
 
   defp print_header(runner, _state) do
-    total_count =
-      runner.datasets
-      |> Enum.reduce(0, fn dataset, acc ->
-        cases = Map.get(dataset, :cases, [])
-        acc + Enum.count(cases)
+    total_cases =
+      Enum.reduce(runner.datasets, 0, fn dataset, acc ->
+        acc + length(ExEval.Dataset.cases(dataset))
       end)
 
-    IO.puts("Running ExEval with seed: #{:rand.uniform(999_999)}, max_cases: #{total_count}")
-    IO.puts("")
+    seed = :rand.uniform(999_999)
+    IO.puts("Running ExEval with seed: #{seed}, max_cases: #{total_cases}")
+    :ok
   end
 
   defp print_trace_result_with_headers(result, state) do
@@ -150,13 +149,11 @@ defmodule ExEval.Reporter.Console do
         0
       end
 
-    if !state.trace do
-      IO.puts("")
-    end
-
-    if failed > 0 && !state.trace do
+    # Print failures and errors if any (similar to ExUnit format)
+    if (failed > 0 || errors > 0) && !state.trace do
       IO.puts("")
 
+      # Print failed evaluations
       state.failed_results
       |> Enum.reverse()
       |> Enum.with_index(1)
@@ -164,11 +161,12 @@ defmodule ExEval.Reporter.Console do
         category_info = if result[:category], do: " [#{result.category}]", else: ""
         IO.puts("  #{index}) #{format_input_for_summary(result.input)}#{category_info}")
         IO.puts("     #{red(result.reasoning)}")
-        IO.puts("")
-      end)
-    end
 
-    if errors > 0 && !state.trace do
+        # Only add blank line if not the last item
+        if index < failed + errors, do: IO.puts("")
+      end)
+
+      # Print error evaluations
       state.error_results
       |> Enum.reverse()
       |> Enum.with_index(failed + 1)
@@ -176,10 +174,14 @@ defmodule ExEval.Reporter.Console do
         category_info = if result[:category], do: " [#{result.category}]", else: ""
         IO.puts("  #{index}) #{format_input_for_summary(result.input)}#{category_info}")
         IO.puts("     #{yellow(result.error)}")
-        IO.puts("")
+
+        # Only add blank line if not the last item
+        if index < failed + errors, do: IO.puts("")
       end)
     end
 
+    # Add blank line before summary like ExUnit
+    IO.puts("")
     IO.puts("Finished in #{format_duration(duration)}")
 
     total = passed + failed + errors
@@ -200,9 +202,8 @@ defmodule ExEval.Reporter.Console do
       IO.puts("#{total} evaluations, #{red("#{failed} #{failures_text}")}#{errors_text}")
     end
 
-    if failed > 0 || errors > 0 do
-      IO.puts("\nRandomized with seed #{:rand.uniform(999_999)}")
-    end
+    # Always print seed like ExUnit does
+    IO.puts("\nRandomized with seed #{:rand.uniform(999_999)}")
   end
 
   defp format_input_for_summary(input) when is_list(input) do

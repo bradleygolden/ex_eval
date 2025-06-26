@@ -4,7 +4,7 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
 
 ## Core Concepts
 
-1. **Evaluation Modules**: Always use `ExEval.Dataset` macro to define evaluation modules
+1. **Evaluation Modules**: Always use `ExEval.DatasetProvider.Module` macro to define evaluation modules
 2. **Response Functions**: Must accept input and return string responses
 3. **Judge Prompts**: Should be binary (YES/NO) questions for consistent evaluation
 4. **Categories**: Use meaningful category names for organizing and filtering evaluations
@@ -14,7 +14,7 @@ ExEval is a dataset-oriented evaluation framework for AI/LLM applications using 
 ### Basic Evaluation Module
 ```elixir
 defmodule MyApp.SecurityEval do
-  use ExEval.Dataset, response_fn: &MyApp.AI.chat/1
+  use ExEval.DatasetProvider.Module, response_fn: &MyApp.AI.chat/1
   
   eval_dataset [
     %{

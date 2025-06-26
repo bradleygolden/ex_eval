@@ -76,7 +76,7 @@ defmodule Mix.Tasks.Ai.Eval do
         runner_opts
       end
 
-    runner = ExEval.Runner.run(modules, runner_opts)
+    runner = ExEval.Runner.run_sync(modules, runner_opts)
 
     exit_code =
       case Enum.group_by(runner.results, & &1.status) do

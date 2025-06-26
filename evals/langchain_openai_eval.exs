@@ -13,7 +13,7 @@ defmodule LangChainOpenAIEval do
   Requires OPENAI_API_KEY environment variable to be set.
   """
 
-  use ExEval.Dataset,
+  use ExEval.DatasetProvider.Module,
     response_fn: &__MODULE__.generate_ai_response/2,
     judge_provider: ExEval.JudgeProvider.LangChain,
     config: %{
