@@ -52,16 +52,15 @@ defmodule ExEval.Judge.Composite do
     def call(response, criteria, config) do
       judges = config[:judges]
       strategy = config[:strategy] || :majority
-      
+
       if judges == nil || judges == [] do
         {:error, "Consensus judge requires non-empty :judges list"}
       else
         call_with_judges(response, criteria, config, judges, strategy)
       end
     end
-    
-    defp call_with_judges(response, criteria, config, judges, strategy) do
 
+    defp call_with_judges(response, criteria, config, judges, strategy) do
       # Run all judges in parallel
       results =
         judges
@@ -301,54 +300,54 @@ defmodule ExEval.Judge.Composite do
     @impl true
     def call(response, criteria, config) do
       weighted_judges = config[:judges]
-      
+
       if weighted_judges == nil || weighted_judges == [] do
         {:error, "Weighted judge requires non-empty :judges list"}
       else
         call_with_weighted_judges(response, criteria, config, weighted_judges)
       end
     end
-    
+
     defp call_with_weighted_judges(response, criteria, config, weighted_judges) do
       # Validate weights are positive
       invalid_weights = Enum.filter(weighted_judges, fn {_judge, weight} -> weight <= 0 end)
-      
+
       if invalid_weights != [] do
         {:error, "All weights must be positive numbers"}
       else
         # Normalize weights
         total_weight = weighted_judges |> Enum.map(&elem(&1, 1)) |> Enum.sum()
 
-      normalized_judges =
-        Enum.map(weighted_judges, fn {judge_config, weight} ->
-          {judge_config, weight / total_weight}
-        end)
+        normalized_judges =
+          Enum.map(weighted_judges, fn {judge_config, weight} ->
+            {judge_config, weight / total_weight}
+          end)
 
-      # Run all judges in parallel
-      results =
-        normalized_judges
-        |> Task.async_stream(
-          fn {judge_config, weight} ->
-            case run_single_judge(judge_config, response, criteria) do
-              {:ok, result, metadata} -> {:ok, {result, metadata, weight}}
-              error -> error
-            end
-          end,
-          timeout: config[:timeout] || 30_000
-        )
-        |> Enum.map(fn
-          {:ok, result} -> result
-          {:exit, :timeout} -> {:error, :timeout}
-        end)
+        # Run all judges in parallel
+        results =
+          normalized_judges
+          |> Task.async_stream(
+            fn {judge_config, weight} ->
+              case run_single_judge(judge_config, response, criteria) do
+                {:ok, result, metadata} -> {:ok, {result, metadata, weight}}
+                error -> error
+              end
+            end,
+            timeout: config[:timeout] || 30_000
+          )
+          |> Enum.map(fn
+            {:ok, result} -> result
+            {:exit, :timeout} -> {:error, :timeout}
+          end)
 
-      # Check for errors
-      errors = Enum.filter(results, &match?({:error, _}, &1))
+        # Check for errors
+        errors = Enum.filter(results, &match?({:error, _}, &1))
 
-      if length(errors) > 0 do
-        {:error, "#{length(errors)} judge(s) failed: #{inspect(errors)}"}
-      else
-        aggregate_weighted_results(results, config)
-      end
+        if length(errors) > 0 do
+          {:error, "#{length(errors)} judge(s) failed: #{inspect(errors)}"}
+        else
+          aggregate_weighted_results(results, config)
+        end
       end
     end
 

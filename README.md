@@ -86,11 +86,12 @@ This documentation provides a complete reference for all ExEval functionality. I
 
 1. [ExEval Module - Configuration API](#exeval-module---configuration-api)
 2. [ExEval.Runner Module - Execution Control](#exevalrunner-module---execution-control)
-3. [Pipeline Processors](#pipeline-processors)
-4. [Composite Judges](#composite-judges)
-5. [Metrics System](#metrics-system)
-6. [Implementing Custom Components](#implementing-custom-components)
-7. [Complete Examples](#complete-examples)
+3. [Event Broadcasting](#event-broadcasting)
+4. [Pipeline Processors](#pipeline-processors)
+5. [Composite Judges](#composite-judges)
+6. [Metrics System](#metrics-system)
+7. [Implementing Custom Components](#implementing-custom-components)
+8. [Complete Examples](#complete-examples)
 
 ## ExEval Module - Configuration API
 
@@ -356,6 +357,32 @@ config = ExEval.put_store(config, MyApp.ResultStore,
 config = ExEval.put_artifact_logging(config, true)
 ```
 
+#### `put_broadcaster/2` and `put_broadcaster/3` - Configure broadcaster
+```elixir
+@spec put_broadcaster(config, module :: atom()) :: config
+@spec put_broadcaster(config, module :: atom(), opts :: keyword()) :: config
+
+# Single broadcaster for Phoenix PubSub
+config = ExEval.put_broadcaster(config, ExEvalPubSub.Broadcaster, 
+  topic: "evaluation:#{eval_id}",
+  pubsub: MyApp.PubSub
+)
+
+# Disable broadcasting
+config = ExEval.put_broadcaster(config, nil)
+```
+
+#### `put_broadcasters/1` - Configure multiple broadcasters
+```elixir
+@spec put_broadcasters(config, broadcasters :: list()) :: config
+
+# Multiple broadcasters for simultaneous streaming
+config = ExEval.put_broadcasters(config, [
+  {ExEvalPubSub.Broadcaster, topic: "evaluation:#{eval_id}"},
+  {ExEvalTelemetry.Broadcaster, prefix: [:my_app, :evaluations]}
+])
+```
+
 ## ExEval.Runner Module - Execution Control
 
 The Runner module manages evaluation execution lifecycle.
@@ -407,6 +434,169 @@ runs = ExEval.Runner.list_active_runs(registry: MyApp.Registry)
 # Usually called via ExEval.run/2 with async: false
 result = ExEval.Runner.run_sync(config, timeout: 120_000)
 ```
+
+## Event Broadcasting
+
+ExEval supports real-time event streaming through the broadcaster system, perfect for LiveView UIs, monitoring, and telemetry. This provides a clean separation between the core evaluation logic and external integrations.
+
+### Broadcaster Events
+
+Broadcasters receive these lifecycle events with enriched data:
+
+#### `:started` - Evaluation run begins
+```elixir
+%{
+  run_id: "abc123",
+  external_id: "user-eval-456",  # optional
+  started_at: ~U[2024-01-01 12:00:00Z],
+  total_cases: 100,
+  timestamp: ~U[2024-01-01 12:00:00Z]
+}
+```
+
+#### `:progress` - Individual evaluation completes
+```elixir
+%{
+  run_id: "abc123",
+  completed: 25,
+  total: 100,
+  percentage: 25.0,
+  current_result: %{
+    status: :passed,
+    category: :math,
+    duration_ms: 234
+  },
+  timestamp: ~U[2024-01-01 12:00:25Z]
+}
+```
+
+#### `:completed` - Evaluation run finishes successfully
+```elixir
+%{
+  run_id: "abc123", 
+  status: :completed,
+  results_summary: %{
+    total: 100,
+    passed: 85,
+    failed: 15,
+    errors: 0
+  },
+  metrics: %{pass_rate: 0.85, avg_latency_ms: 245},
+  finished_at: ~U[2024-01-01 12:05:00Z],
+  duration_ms: 300000,
+  timestamp: ~U[2024-01-01 12:05:00Z]
+}
+```
+
+#### `:failed` - Evaluation run encounters an error
+```elixir
+%{
+  run_id: "abc123",
+  error: "Judge initialization failed",
+  finished_at: ~U[2024-01-01 12:01:00Z],
+  timestamp: ~U[2024-01-01 12:01:00Z]
+}
+```
+
+### Implementing a Broadcaster
+
+```elixir
+defmodule MyApp.EvalBroadcaster do
+  @behaviour ExEval.Broadcaster
+  
+  @impl true
+  def init(config) do
+    # Initialize broadcaster state
+    {:ok, %{
+      topic: config[:topic] || "evaluations",
+      pubsub: config[:pubsub] || MyApp.PubSub,
+      prefix: config[:prefix] || ""
+    }}
+  end
+  
+  @impl true  
+  def broadcast(:started, data, state) do
+    Phoenix.PubSub.broadcast(state.pubsub, state.topic, 
+      {:eval_started, data.run_id, data.total_cases})
+    :ok
+  end
+  
+  def broadcast(:progress, data, state) do
+    # Send progress updates to LiveView
+    Phoenix.PubSub.broadcast(state.pubsub, state.topic, 
+      {:eval_progress, data.percentage, data.current_result})
+    :ok
+  end
+  
+  def broadcast(:completed, data, state) do
+    # Notify completion with summary
+    Phoenix.PubSub.broadcast(state.pubsub, state.topic,
+      {:eval_complete, data.results_summary, data.metrics})
+    :ok
+  end
+  
+  def broadcast(:failed, data, state) do
+    Phoenix.PubSub.broadcast(state.pubsub, state.topic,
+      {:eval_failed, data.run_id, data.error})
+    :ok
+  end
+  
+  @impl true
+  def terminate(_reason, _state) do
+    # Optional cleanup
+    :ok
+  end
+end
+```
+
+### Integration Patterns
+
+**Multiple Broadcasters for Different Concerns:**
+
+```elixir
+config = ExEval.put_broadcasters(config, [
+  # Real-time UI updates
+  {ExEvalPubSub.Broadcaster, 
+   topic: "evaluation:#{eval_id}", 
+   pubsub: MyApp.PubSub},
+   
+  # Telemetry for monitoring  
+  {ExEvalTelemetry.Broadcaster, 
+   prefix: [:my_app, :evaluations]},
+   
+  # External metrics
+  {ExEvalDatadog.Broadcaster, 
+   service: "evaluations",
+   tags: %{environment: "production"}}
+])
+```
+
+**Broadcaster vs Other Patterns:**
+
+| Pattern | Scope | Use Case | Performance |
+|---------|-------|----------|-------------|
+| **Broadcaster** | Run-level events | Progress tracking, LiveView updates | Best |
+| **Middleware** | Per-evaluation wrapping | Logging, retries, auth | Good |  
+| **Postprocessors** | Result transformation | Data enrichment, filtering | Good |
+
+**Key Benefits:**
+- **Fire-and-forget**: Broadcaster errors don't affect evaluation
+- **Parallel execution**: Multiple broadcasters run simultaneously
+- **Clean separation**: Core logic isolated from integrations
+- **Zero dependencies**: Core library stays lightweight
+
+**Recommended:** Use broadcasters for real-time UI updates and monitoring, as they provide run-level events with minimal overhead and error isolation.
+
+### External Package Pattern
+
+The broadcaster system is designed for external packages:
+
+- **ex_eval_pubsub** - Phoenix PubSub integration
+- **ex_eval_telemetry** - :telemetry event streaming  
+- **ex_eval_datadog** - Datadog metrics
+- **ex_eval_prometheus** - Prometheus metrics
+
+This keeps the core ExEval library focused and dependency-free while enabling rich integrations.
 
 ## Pipeline Processors
 

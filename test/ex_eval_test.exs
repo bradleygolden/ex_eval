@@ -518,7 +518,7 @@ defmodule ExEvalTest do
       # Start test-specific supervisor and registry
       start_supervised!({Registry, keys: :unique, name: :test_registry_sync})
       start_supervised!({DynamicSupervisor, name: :test_supervisor_sync, strategy: :one_for_one})
-      
+
       config =
         ExEval.new()
         |> ExEval.put_judge(InlineTestJudge)
@@ -526,7 +526,13 @@ defmodule ExEvalTest do
         |> ExEval.put_response_fn(fn _ -> "response" end)
         |> ExEval.put_reporter(SilentReporter)
 
-      result = ExEval.run(config, async: false, registry: :test_registry_sync, supervisor: :test_supervisor_sync)
+      result =
+        ExEval.run(config,
+          async: false,
+          registry: :test_registry_sync,
+          supervisor: :test_supervisor_sync
+        )
+
       assert result.status == :completed
       assert length(result.results) == 1
       assert hd(result.results).status == :passed
@@ -535,8 +541,11 @@ defmodule ExEvalTest do
     test "run/2 executes evaluation asynchronously by default" do
       # Start test-specific supervisor and registry
       start_supervised!({Registry, keys: :unique, name: :test_registry_async_default})
-      start_supervised!({DynamicSupervisor, name: :test_supervisor_async_default, strategy: :one_for_one})
-      
+
+      start_supervised!(
+        {DynamicSupervisor, name: :test_supervisor_async_default, strategy: :one_for_one}
+      )
+
       config =
         ExEval.new()
         |> ExEval.put_judge(InlineTestJudge)
@@ -544,7 +553,12 @@ defmodule ExEvalTest do
         |> ExEval.put_response_fn(fn _ -> "response" end)
         |> ExEval.put_reporter(SilentReporter)
 
-      {:ok, run_id} = ExEval.run(config, registry: :test_registry_async_default, supervisor: :test_supervisor_async_default)
+      {:ok, run_id} =
+        ExEval.run(config,
+          registry: :test_registry_async_default,
+          supervisor: :test_supervisor_async_default
+        )
+
       assert is_binary(run_id)
 
       # Give it a moment to complete
@@ -554,8 +568,11 @@ defmodule ExEvalTest do
     test "run/2 with async: true executes evaluation asynchronously" do
       # Start test-specific supervisor and registry
       start_supervised!({Registry, keys: :unique, name: :test_registry_async_true})
-      start_supervised!({DynamicSupervisor, name: :test_supervisor_async_true, strategy: :one_for_one})
-      
+
+      start_supervised!(
+        {DynamicSupervisor, name: :test_supervisor_async_true, strategy: :one_for_one}
+      )
+
       config =
         ExEval.new()
         |> ExEval.put_judge(InlineTestJudge)
@@ -563,7 +580,13 @@ defmodule ExEvalTest do
         |> ExEval.put_response_fn(fn _ -> "response" end)
         |> ExEval.put_reporter(SilentReporter)
 
-      {:ok, run_id} = ExEval.run(config, async: true, registry: :test_registry_async_true, supervisor: :test_supervisor_async_true)
+      {:ok, run_id} =
+        ExEval.run(config,
+          async: true,
+          registry: :test_registry_async_true,
+          supervisor: :test_supervisor_async_true
+        )
+
       assert is_binary(run_id)
 
       # Give it a moment to complete

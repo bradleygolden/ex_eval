@@ -71,7 +71,10 @@ defmodule ExEval do
             preprocessors: [],
             response_processors: [],
             postprocessors: [],
-            middleware: []
+            middleware: [],
+            # Broadcaster fields
+            broadcaster: nil,
+            broadcaster_config: %{}
 
   @type t :: %__MODULE__{
           judge: module() | {module(), keyword()} | nil,
@@ -89,7 +92,10 @@ defmodule ExEval do
           preprocessors: list(),
           response_processors: list(),
           postprocessors: list(),
-          middleware: list()
+          middleware: list(),
+          # Broadcaster types
+          broadcaster: module() | nil,
+          broadcaster_config: map()
         }
 
   @doc """
@@ -552,16 +558,107 @@ defmodule ExEval do
       {:ok, state} = ExEval.Runner.get_run(run_id)
   """
   def run(%__MODULE__{} = config, opts \\ []) do
+    # Add broadcaster configuration to runner options
+    runner_opts =
+      opts
+      |> Keyword.delete(:async)
+      |> Keyword.put(:broadcaster, config.broadcaster)
+      |> Keyword.put(:broadcaster_config, config.broadcaster_config)
+
     case Keyword.get(opts, :async, true) do
       true ->
-        # Remove :async from opts before passing to runner
-        runner_opts = Keyword.delete(opts, :async)
         ExEval.Runner.run(config, runner_opts)
 
       false ->
-        # Remove :async from opts before passing to runner
-        runner_opts = Keyword.delete(opts, :async)
         ExEval.Runner.run_sync(config, runner_opts)
+    end
+  end
+
+  @doc """
+  Configures a broadcaster for real-time event streaming.
+
+  ## Examples
+
+      # Single broadcaster
+      config = ExEval.new()
+      |> ExEval.put_broadcaster(MyApp.EvalBroadcaster,
+          topic: "evaluation:123",
+          pubsub: MyApp.PubSub
+        )
+      
+      # Multiple broadcasters (PubSub + Telemetry)
+      config = ExEval.new()
+      |> ExEval.put_broadcasters([
+          {ExEvalPubSub.Broadcaster, topic: "eval:123", pubsub: MyApp.PubSub},
+          {ExEvalTelemetry.Broadcaster, prefix: [:my_app, :evaluations]}
+        ])
+      
+      # Disable broadcasting
+      config = ExEval.new()
+      |> ExEval.put_broadcaster(nil)
+  """
+  def put_broadcaster(%__MODULE__{} = config, nil) do
+    %{config | broadcaster: nil, broadcaster_config: %{}}
+  end
+
+  def put_broadcaster(%__MODULE__{} = config, broadcaster_module, broadcaster_config \\ %{})
+      when is_atom(broadcaster_module) do
+    # Convert keyword list to map if needed
+    config_map =
+      if is_list(broadcaster_config),
+        do: Enum.into(broadcaster_config, %{}),
+        else: broadcaster_config
+
+    %{config | broadcaster: broadcaster_module, broadcaster_config: config_map}
+  end
+
+  @doc """
+  Configures multiple broadcasters for simultaneous event streaming.
+
+  ## Examples
+
+      config = ExEval.new()
+      |> ExEval.put_broadcasters([
+          {ExEvalPubSub.Broadcaster, topic: "eval:123"},
+          {ExEvalTelemetry.Broadcaster, prefix: [:my_app]},
+          {ExEvalMetrics.Broadcaster, namespace: "evaluations"}
+        ])
+  """
+  def put_broadcasters(%__MODULE__{} = config, broadcasters) when is_list(broadcasters) do
+    %{config | broadcaster: :multi, broadcaster_config: %{broadcasters: broadcasters}}
+  end
+
+  @doc """
+  Validates that a configuration is complete and ready to run.
+
+  ## Examples
+
+      config = ExEval.new()
+      |> ExEval.put_dataset([%{input: "test"}])
+      
+      case ExEval.validate(config) do
+        {:ok, config} -> ExEval.run(config)
+        {:error, errors} -> IO.inspect(errors)
+      end
+  """
+  def validate(%__MODULE__{} = config) do
+    errors = []
+
+    errors = if is_nil(config.judge), do: ["No judge configured" | errors], else: errors
+
+    errors =
+      if is_nil(config.dataset) or config.dataset == [],
+        do: ["No dataset configured" | errors],
+        else: errors
+
+    errors =
+      if is_nil(config.response_fn),
+        do: ["No response function configured" | errors],
+        else: errors
+
+    case errors do
+      [] -> {:ok, config}
+      _ -> {:error, errors}
     end
   end
 end

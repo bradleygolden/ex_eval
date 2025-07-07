@@ -35,7 +35,7 @@ defmodule ExEval.Evaluator do
       {:error, "Judge module #{inspect(module)} does not implement call/3"}
     end
   end
-  
+
   # Handle invalid judge configuration
   def evaluate(judge_config, _response, _criteria) do
     {:error, "Invalid judge configuration: #{inspect(judge_config)}"}

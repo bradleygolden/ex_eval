@@ -24,6 +24,8 @@ defmodule ExEval.Runner do
     :reporter_config,
     :reporter_state,
     :supervisor,
+    :broadcaster,
+    :external_id,
     status: :pending,
     results: [],
     started_at: nil,
@@ -214,55 +216,68 @@ defmodule ExEval.Runner do
     datasets = opts[:datasets] || []
     registry = opts[:registry] || ExEval.RunnerRegistry
     eval_config = opts[:eval_config]
-    
+
     unless eval_config do
       {:stop, {:error, "ExEval config required"}}
     else
+      Registry.register(registry, run_id, self())
 
-    Registry.register(registry, run_id, self())
+      # Extract options from ExEval struct
+      options = [
+        parallel: eval_config.parallel,
+        max_concurrency: eval_config.max_concurrency,
+        timeout: eval_config.timeout,
+        eval_config: eval_config
+      ]
 
-    # Extract options from ExEval struct
-    options = [
-      parallel: eval_config.parallel,
-      max_concurrency: eval_config.max_concurrency,
-      timeout: eval_config.timeout,
-      eval_config: eval_config
-    ]
+      # Add any additional options passed in
+      options = Keyword.merge(options, Keyword.drop(opts, [:run_id, :datasets, :eval_config]))
 
-    # Add any additional options passed in
-    options = Keyword.merge(options, Keyword.drop(opts, [:run_id, :datasets, :eval_config]))
+      {reporter_module, reporter_config} =
+        case eval_config.reporter do
+          {module, opts} when is_atom(module) and is_list(opts) ->
+            {module, Enum.into(opts, %{})}
 
-    {reporter_module, reporter_config} =
-      case eval_config.reporter do
-        {module, opts} when is_atom(module) and is_list(opts) ->
-          {module, Enum.into(opts, %{})}
+          module when is_atom(module) ->
+            {module, %{}}
 
-        module when is_atom(module) ->
-          {module, %{}}
+          _ ->
+            {ExEval.Reporter.Console, %{}}
+        end
 
-        _ ->
-          {ExEval.Reporter.Console, %{}}
-      end
+      options =
+        if eval_config.store do
+          Keyword.put(options, :store_module, eval_config.store)
+        else
+          options
+        end
 
-    options =
-      if eval_config.store do
-        Keyword.put(options, :store_module, eval_config.store)
-      else
-        options
-      end
+      # Initialize broadcaster if provided
+      broadcaster = init_broadcaster(opts[:broadcaster], opts[:broadcaster_config])
+      external_id = opts[:external_id]
 
-    state = %__MODULE__{
-      id: run_id,
-      datasets: datasets,
-      options: options,
-      metadata: build_run_metadata(eval_config, opts),
-      reporter_module: reporter_module,
-      reporter_config: reporter_config
-    }
+      state = %__MODULE__{
+        id: run_id,
+        datasets: datasets,
+        options: options,
+        metadata: build_run_metadata(eval_config, opts),
+        reporter_module: reporter_module,
+        reporter_config: reporter_config,
+        broadcaster: broadcaster,
+        external_id: external_id
+      }
 
-    send(self(), :start_evaluation)
+      # Broadcast start event
+      broadcast_event(state, :started, %{
+        run_id: run_id,
+        external_id: external_id,
+        started_at: DateTime.utc_now(),
+        total_cases: count_total_cases(datasets)
+      })
 
-    {:ok, state}
+      send(self(), :start_evaluation)
+
+      {:ok, state}
     end
   end
 
@@ -298,6 +313,9 @@ defmodule ExEval.Runner do
         run_sequential(state)
       end
 
+    # Calculate metrics
+    metrics = ExEval.Metrics.compute(results)
+
     # Finalize
     state = %{
       state
@@ -306,6 +324,17 @@ defmodule ExEval.Runner do
         status: :completed,
         finished_at: DateTime.utc_now()
     }
+
+    # Broadcast completion
+    broadcast_event(state, :completed, %{
+      run_id: state.id,
+      external_id: state.external_id,
+      status: :completed,
+      results_summary: summarize_results(results),
+      metrics: metrics,
+      finished_at: state.finished_at,
+      duration_ms: DateTime.diff(state.finished_at, state.started_at, :millisecond)
+    })
 
     # Finalize reporter
     state.reporter_module.finalize(state, final_reporter_state, state.reporter_config)
@@ -411,6 +440,19 @@ defmodule ExEval.Runner do
         state.reporter_module.report_result(result, reporter_state_acc, state.reporter_config)
 
       # Broadcast progress
+      completed = length(results_acc) + 1
+      total = count_total_cases(state.datasets)
+
+      broadcast_event(state, :progress, %{
+        completed: completed,
+        total: total,
+        percentage: Float.round(completed / total * 100, 1),
+        current_result: %{
+          status: result[:status],
+          category: result[:category],
+          duration_ms: result[:duration_ms]
+        }
+      })
 
       {[result | results_acc], new_reporter_state}
     end)
@@ -745,11 +787,16 @@ defmodule ExEval.Runner do
         if function_exported?(module, :save_run, 1) do
           # Store implementations handle their own configuration
           case module.save_run(run_data) do
-            :ok -> :ok
-            {:ok, _} = result -> result
-            {:error, _} = error -> 
+            :ok ->
+              :ok
+
+            {:ok, _} = result ->
+              result
+
+            {:error, _} = error ->
               Logger.error("Store save failed: #{inspect(error)}")
               error
+
             other ->
               Logger.error("Store save returned unexpected value: #{inspect(other)}")
               {:error, :invalid_store_response}
@@ -762,11 +809,16 @@ defmodule ExEval.Runner do
       module when is_atom(module) ->
         if function_exported?(module, :save_run, 1) do
           case module.save_run(run_data) do
-            :ok -> :ok
-            {:ok, _} = result -> result
+            :ok ->
+              :ok
+
+            {:ok, _} = result ->
+              result
+
             {:error, _} = error ->
               Logger.error("Store save failed: #{inspect(error)}")
               error
+
             other ->
               Logger.error("Store save returned unexpected value: #{inspect(other)}")
               {:error, :invalid_store_response}
@@ -775,10 +827,176 @@ defmodule ExEval.Runner do
           Logger.error("Store module #{inspect(module)} does not implement save_run/1")
           {:error, :invalid_store_module}
         end
-          
+
       _ ->
         Logger.error("Invalid store configuration: #{inspect(store_config)}")
         {:error, :invalid_store_config}
     end
   end
+
+  ## Broadcaster Support
+
+  defp init_broadcaster(nil, _config), do: nil
+
+  defp init_broadcaster(:multi, config) do
+    broadcasters = config[:broadcasters] || []
+
+    initialized_broadcasters =
+      Enum.reduce(broadcasters, [], fn broadcaster_config, acc ->
+        case broadcaster_config do
+          {module, module_config} when is_atom(module) ->
+            case module.init(Enum.into(module_config, %{})) do
+              {:ok, broadcaster_state} ->
+                [{module, broadcaster_state} | acc]
+
+              {:error, reason} ->
+                Logger.warning(
+                  "Failed to initialize broadcaster #{inspect(module)}: #{inspect(reason)}"
+                )
+
+                acc
+            end
+
+          module when is_atom(module) ->
+            case module.init(%{}) do
+              {:ok, broadcaster_state} ->
+                [{module, broadcaster_state} | acc]
+
+              {:error, reason} ->
+                Logger.warning(
+                  "Failed to initialize broadcaster #{inspect(module)}: #{inspect(reason)}"
+                )
+
+                acc
+            end
+
+          _ ->
+            Logger.warning("Invalid broadcaster configuration: #{inspect(broadcaster_config)}")
+            acc
+        end
+      end)
+
+    if initialized_broadcasters == [] do
+      nil
+    else
+      {:multi, Enum.reverse(initialized_broadcasters)}
+    end
+  end
+
+  defp init_broadcaster(module, config) when is_atom(module) do
+    case module.init(config || %{}) do
+      {:ok, broadcaster_state} ->
+        {module, broadcaster_state}
+
+      {:error, reason} ->
+        Logger.warning("Failed to initialize broadcaster: #{inspect(reason)}")
+        nil
+    end
+  end
+
+  defp broadcast_event(%{broadcaster: nil}, _event, _data), do: :ok
+
+  defp broadcast_event(%{broadcaster: {:multi, broadcasters}} = runner_state, event, data) do
+    # Add common fields
+    enriched_data =
+      Map.merge(data, %{
+        run_id: runner_state.id,
+        external_id: runner_state.external_id,
+        timestamp: DateTime.utc_now()
+      })
+
+    # Broadcast to all broadcasters in parallel
+    Task.start(fn ->
+      broadcasters
+      |> Task.async_stream(
+        fn {module, state} ->
+          try do
+            module.broadcast(event, enriched_data, state)
+          rescue
+            e -> Logger.error("Broadcaster #{inspect(module)} error: #{inspect(e)}")
+          end
+        end,
+        timeout: 1000
+      )
+      |> Stream.run()
+    end)
+
+    :ok
+  end
+
+  defp broadcast_event(%{broadcaster: {module, state}} = runner_state, event, data) do
+    # Add common fields
+    enriched_data =
+      Map.merge(data, %{
+        run_id: runner_state.id,
+        external_id: runner_state.external_id,
+        timestamp: DateTime.utc_now()
+      })
+
+    # Fire and forget - don't let broadcaster errors affect evaluation
+    Task.start(fn ->
+      try do
+        module.broadcast(event, enriched_data, state)
+      rescue
+        e -> Logger.error("Broadcaster error: #{inspect(e)}")
+      end
+    end)
+
+    :ok
+  end
+
+  defp count_total_cases(datasets) do
+    Enum.reduce(datasets, 0, fn dataset, acc ->
+      acc + length(ExEval.Dataset.cases(dataset))
+    end)
+  end
+
+  defp summarize_results(results) do
+    %{
+      total: length(results),
+      passed: Enum.count(results, &(&1[:status] == :passed)),
+      failed: Enum.count(results, &(&1[:status] == :failed)),
+      evaluated: Enum.count(results, &(&1[:status] == :evaluated)),
+      errors: Enum.count(results, &(&1[:status] == :error))
+    }
+  end
+
+  @impl true
+  def terminate(reason, %{broadcaster: {:multi, broadcasters}} = state) do
+    # Broadcast failure if terminating abnormally
+    if reason != :normal && reason != :shutdown do
+      broadcast_event(state, :failed, %{
+        error: inspect(reason),
+        finished_at: DateTime.utc_now()
+      })
+    end
+
+    # Clean up all broadcasters
+    Enum.each(broadcasters, fn {module, broadcaster_state} ->
+      if function_exported?(module, :terminate, 2) do
+        module.terminate(reason, broadcaster_state)
+      end
+    end)
+
+    :ok
+  end
+
+  def terminate(reason, %{broadcaster: {module, broadcaster_state}} = state) do
+    # Broadcast failure if terminating abnormally
+    if reason != :normal && reason != :shutdown do
+      broadcast_event(state, :failed, %{
+        error: inspect(reason),
+        finished_at: DateTime.utc_now()
+      })
+    end
+
+    # Clean up broadcaster
+    if function_exported?(module, :terminate, 2) do
+      module.terminate(reason, broadcaster_state)
+    end
+
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
 end

@@ -292,8 +292,11 @@ defmodule ExEval.Judge.CompositeTest do
     test "consensus judge via put_consensus_judge" do
       # Start test-specific supervisor and registry
       start_supervised!({Registry, keys: :unique, name: :test_registry_consensus})
-      start_supervised!({DynamicSupervisor, name: :test_supervisor_consensus, strategy: :one_for_one})
-      
+
+      start_supervised!(
+        {DynamicSupervisor, name: :test_supervisor_consensus, strategy: :one_for_one}
+      )
+
       config =
         ExEval.new()
         |> ExEval.put_consensus_judge([
@@ -305,7 +308,12 @@ defmodule ExEval.Judge.CompositeTest do
         |> ExEval.put_response_fn(fn _ -> "response" end)
         |> ExEval.put_reporter(SilentReporter)
 
-      result = ExEval.run(config, async: false, registry: :test_registry_consensus, supervisor: :test_supervisor_consensus)
+      result =
+        ExEval.run(config,
+          async: false,
+          registry: :test_registry_consensus,
+          supervisor: :test_supervisor_consensus
+        )
 
       assert result.status == :completed
       assert length(result.results) == 1

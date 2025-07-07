@@ -272,7 +272,7 @@ defmodule ExEval.RunnerTest do
 
       # Empty configuration should complete with no results
       result = ExEval.Runner.run_sync(config, registry: registry, supervisor: supervisor)
-      
+
       assert result.status == :completed
       assert result.results == []
     end

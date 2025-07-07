@@ -23,7 +23,7 @@ Review the following aspects:
 3. Run 'mix compile --warnings-as-errors' and report any warnings
 4. Check for debugging statements (IO.inspect, IO.puts, dbg) in lib/ files
 5. Check for TODO/FIXME comments that need attention
-6. Run 'mix ai.eval' and verify evaluations can execute
+6. Check that core evaluation functionality works correctly
 7. Review overall code quality and adherence to Elixir best practices
 8. Check error handling patterns
 9. Verify documentation with 'mix docs'

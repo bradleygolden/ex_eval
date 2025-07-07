@@ -358,7 +358,6 @@ defmodule ExEval.Pipeline do
       |> Base.encode16(case: :lower)
     end
 
-
     defp cache_result(_cache_key, _result) do
       # In a real implementation, this would store in cache
       :ok
