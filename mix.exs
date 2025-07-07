@@ -9,10 +9,8 @@ defmodule ExEval.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
-      preferred_cli_env: [
-        test: :test,
-        "ai.eval": :eval
-      ],
+      consolidate_protocols: Mix.env() != :test,
+      test_coverage: [threshold: 90.0],
       name: "ExEval",
       description:
         "Dataset-oriented evaluation framework for AI/LLM applications using LLM-as-judge pattern"
@@ -28,13 +26,10 @@ defmodule ExEval.MixProject do
 
   defp deps do
     [
-      {:langchain, "~> 0.3.0", optional: true},
-      {:jason, "~> 1.4"},
-      {:phoenix_pubsub, "~> 2.0", optional: true}
+      {:jason, "~> 1.4"}
     ]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(:eval), do: ["lib", "evals/support"]
   defp elixirc_paths(_), do: ["lib"]
 end

@@ -53,15 +53,23 @@ defmodule ExEval.Runner do
   - `:reporter_config` - Configuration for the reporter
   - `:metadata` - Custom metadata to attach to the run
   """
-  def run(datasets, options \\ []) do
+  def run(%ExEval{} = config, opts \\ []) do
+    datasets = convert_inline_config_to_dataset(config)
     run_id = generate_run_id()
-    supervisor = options[:supervisor] || ExEval.RunnerSupervisor
+
+    options =
+      [
+        run_id: run_id,
+        datasets: datasets,
+        eval_config: config,
+        supervisor: Keyword.get(opts, :supervisor, ExEval.RunnerSupervisor)
+      ] ++ opts
 
     # Start a dedicated process for this run
     {:ok, _pid} =
       DynamicSupervisor.start_child(
-        supervisor,
-        {__MODULE__, Keyword.merge(options, run_id: run_id, datasets: datasets)}
+        options[:supervisor],
+        {__MODULE__, options}
       )
 
     {:ok, run_id}
@@ -71,21 +79,38 @@ defmodule ExEval.Runner do
   Runs evaluations synchronously (blocking).
   Useful for tests and CLI usage.
   """
-  def run_sync(datasets, options \\ []) do
+  def run_sync(%ExEval{} = config, opts \\ []) do
+    datasets = convert_inline_config_to_dataset(config)
     # Add the caller's PID to options so the runner can send results back
     caller = self()
-    options_with_sync = Keyword.merge(options, sync_caller: caller)
 
-    {:ok, run_id} = run(datasets, options_with_sync)
+    # Include extra options like categories, registry, etc.
+    options =
+      [
+        run_id: generate_run_id(),
+        datasets: datasets,
+        eval_config: config,
+        sync_caller: caller,
+        supervisor: Keyword.get(opts, :supervisor, ExEval.RunnerSupervisor)
+      ] ++ opts
+
+    # Start a dedicated process for this run
+    {:ok, _pid} =
+      DynamicSupervisor.start_child(
+        options[:supervisor],
+        {__MODULE__, options}
+      )
+
+    run_id = options[:run_id]
 
     # Wait for the final state from the runner
     receive do
       {:runner_complete, ^run_id, final_state} ->
         final_state
     after
-      options[:timeout] || 120_000 ->
+      config.timeout || 120_000 ->
         # Timeout - try to get current state
-        case get_run(run_id, options) do
+        case get_run(run_id, opts) do
           {:ok, state} ->
             state
 
@@ -97,8 +122,8 @@ defmodule ExEval.Runner do
               error: "Evaluation timed out",
               started_at: DateTime.utc_now(),
               finished_at: DateTime.utc_now(),
-              metadata: options[:metadata] || %{},
-              options: options
+              metadata: %{},
+              options: []
             }
         end
     end
@@ -158,23 +183,26 @@ defmodule ExEval.Runner do
 
     case Registry.lookup(registry, run_id) do
       [{pid, _}] ->
-        GenServer.call(pid, :cancel)
+        if Process.alive?(pid) do
+          try do
+            GenServer.call(pid, :cancel, 1000)
+          catch
+            :exit, :normal ->
+              {:ok, :cancelled}
+
+            :exit, {:normal, _} ->
+              {:ok, :cancelled}
+
+            :exit, {:noproc, _} ->
+              {:ok, :cancelled}
+          end
+        else
+          # Process is already dead, consider it cancelled
+          {:ok, :cancelled}
+        end
 
       [] ->
         {:error, :not_found}
-    end
-  end
-
-  @doc """
-  Subscribes to updates for a specific run.
-  Useful for LiveView integration.
-  """
-  def subscribe(run_id, options \\ []) do
-    if Code.ensure_loaded?(Phoenix.PubSub) do
-      pubsub = options[:pubsub] || ExEval.PubSub
-      Phoenix.PubSub.subscribe(pubsub, "runner:#{run_id}")
-    else
-      {:error, :pubsub_not_available}
     end
   end
 
@@ -185,28 +213,63 @@ defmodule ExEval.Runner do
     run_id = opts[:run_id] || generate_run_id()
     datasets = opts[:datasets] || []
     registry = opts[:registry] || ExEval.RunnerRegistry
+    eval_config = opts[:eval_config]
+    
+    unless eval_config do
+      {:stop, {:error, "ExEval config required"}}
+    else
 
     Registry.register(registry, run_id, self())
+
+    # Extract options from ExEval struct
+    options = [
+      parallel: eval_config.parallel,
+      max_concurrency: eval_config.max_concurrency,
+      timeout: eval_config.timeout,
+      eval_config: eval_config
+    ]
+
+    # Add any additional options passed in
+    options = Keyword.merge(options, Keyword.drop(opts, [:run_id, :datasets, :eval_config]))
+
+    {reporter_module, reporter_config} =
+      case eval_config.reporter do
+        {module, opts} when is_atom(module) and is_list(opts) ->
+          {module, Enum.into(opts, %{})}
+
+        module when is_atom(module) ->
+          {module, %{}}
+
+        _ ->
+          {ExEval.Reporter.Console, %{}}
+      end
+
+    options =
+      if eval_config.store do
+        Keyword.put(options, :store_module, eval_config.store)
+      else
+        options
+      end
 
     state = %__MODULE__{
       id: run_id,
       datasets: datasets,
-      options: Keyword.merge(default_options(), opts),
-      metadata: Keyword.get(opts, :metadata, %{}),
-      reporter_module: opts[:reporter] || ExEval.Reporter.Console,
-      reporter_config: opts[:reporter_config] || %{}
+      options: options,
+      metadata: build_run_metadata(eval_config, opts),
+      reporter_module: reporter_module,
+      reporter_config: reporter_config
     }
 
     send(self(), :start_evaluation)
 
     {:ok, state}
+    end
   end
 
   @impl true
   def handle_info(:start_evaluation, state) do
     state = %{state | status: :running, started_at: DateTime.utc_now()}
 
-    # Initialize reporter
     case state.reporter_module.init(state, state.reporter_config) do
       {:ok, reporter_state} ->
         state = %{state | reporter_state: reporter_state}
@@ -217,7 +280,6 @@ defmodule ExEval.Runner do
 
       {:error, reason} ->
         state = %{state | status: :error, error: reason, finished_at: DateTime.utc_now()}
-        broadcast_update(state)
 
         # If this is a sync run, send the final state to the caller
         if sync_caller = state.options[:sync_caller] do
@@ -248,12 +310,16 @@ defmodule ExEval.Runner do
     # Finalize reporter
     state.reporter_module.finalize(state, final_reporter_state, state.reporter_config)
 
-    # Broadcast completion
-    broadcast_update(state)
+    # Save run to store if experiment is configured
+    final_public_state = public_state(state)
+
+    if get_in(state.metadata, [:experiment]) && state.options[:store_module] do
+      save_to_store(state.options[:store_module], final_public_state)
+    end
 
     # If this is a sync run, send the final state to the caller
     if sync_caller = state.options[:sync_caller] do
-      send(sync_caller, {:runner_complete, state.id, public_state(state)})
+      send(sync_caller, {:runner_complete, state.id, final_public_state})
     end
 
     {:stop, :normal, state}
@@ -265,21 +331,23 @@ defmodule ExEval.Runner do
   end
 
   def handle_call(:cancel, _from, state) do
-    # TODO: Implement cancellation logic for running tasks
+    # Finalize reporter if it was initialized
+    if state.reporter_state do
+      state.reporter_module.finalize(state, state.reporter_state, state.reporter_config)
+    end
+
     state = %{state | status: :cancelled, finished_at: DateTime.utc_now()}
-    broadcast_update(state)
+
+    # If this is a sync run, send the final state to the caller
+    if sync_caller = state.options[:sync_caller] do
+      send(sync_caller, {:runner_complete, state.id, public_state(state)})
+    end
+
+    # Stop the process, which will cancel any ongoing async operations
     {:stop, :normal, {:ok, :cancelled}, state}
   end
 
   ## Private Functions
-
-  defp default_options do
-    [
-      parallel: true,
-      max_concurrency: @default_max_concurrency,
-      timeout: @default_timeout
-    ]
-  end
 
   defp run_parallel(state) do
     all_cases = prepare_all_cases(state)
@@ -343,7 +411,6 @@ defmodule ExEval.Runner do
         state.reporter_module.report_result(result, reporter_state_acc, state.reporter_config)
 
       # Broadcast progress
-      broadcast_progress(state, length(results_acc) + 1)
 
       {[result | results_acc], new_reporter_state}
     end)
@@ -368,8 +435,6 @@ defmodule ExEval.Runner do
         {:ok, new_reporter_state} =
           state.reporter_module.report_result(result, reporter_state_acc, state.reporter_config)
 
-        broadcast_progress(state, length(state.results) + length(case_results) + 1)
-
         {[result | case_results], new_reporter_state}
       end)
 
@@ -385,14 +450,29 @@ defmodule ExEval.Runner do
     end)
   end
 
-  defp run_eval_case(eval_case, response_fn, dataset, context, _state) do
+  defp run_eval_case(eval_case, response_fn, dataset, context, state) do
     start_time = System.monotonic_time(:millisecond)
+    eval_config = state.options[:eval_config]
+
+    evaluation_context = %{
+      input: eval_case.input,
+      criteria: eval_case.judge_prompt,
+      dataset: dataset,
+      context: context
+    }
 
     result =
       try do
-        {response, judge_prompt} = get_response_and_prompt(eval_case, response_fn, context)
-        judge_result = run_judge(dataset, response, judge_prompt)
-        format_judge_result(judge_result, response)
+        # Wrap the core evaluation with middleware
+        core_evaluation = fn ->
+          run_core_evaluation(eval_case, response_fn, dataset, context, state)
+        end
+
+        ExEval.Pipeline.with_middleware(
+          core_evaluation,
+          eval_config.middleware,
+          evaluation_context
+        )
       catch
         kind, error ->
           %{
@@ -412,6 +492,58 @@ defmodule ExEval.Runner do
       judge_prompt: eval_case.judge_prompt,
       duration_ms: end_time - start_time
     })
+  end
+
+  defp run_core_evaluation(eval_case, response_fn, dataset, context, state) do
+    eval_config = state.options[:eval_config]
+
+    # Step 1: Apply preprocessors to input
+    with {:ok, processed_input} <-
+           apply_pipeline_step(eval_case.input, eval_config.preprocessors, :preprocessors),
+         # Step 2: Generate response with processed input
+         processed_case = %{eval_case | input: processed_input},
+         {response, judge_prompt} = get_response_and_prompt(processed_case, response_fn, context),
+         # Step 3: Apply response processors
+         {:ok, processed_response} <-
+           apply_pipeline_step(response, eval_config.response_processors, :response_processors),
+         # Step 4: Run judge with processed response
+         judge_result = run_judge(dataset, processed_response, judge_prompt, state),
+         # Step 5: Apply postprocessors to judge result
+         {:ok, final_result} <-
+           apply_pipeline_step(judge_result, eval_config.postprocessors, :postprocessors) do
+      # Step 6: Format the final result
+      format_judge_result(final_result, processed_response)
+    else
+      {:error, stage, reason} ->
+        %{status: :error, error: "#{stage} failed: #{reason}"}
+    end
+  end
+
+  defp apply_pipeline_step(data, [], _stage), do: {:ok, data}
+
+  defp apply_pipeline_step(data, processors, stage) do
+    case stage do
+      :preprocessors ->
+        case ExEval.Pipeline.run_preprocessors(data, processors) do
+          {:ok, result} -> {:ok, result}
+          {:error, reason} -> {:error, :preprocessor, reason}
+          result -> {:ok, result}
+        end
+
+      :response_processors ->
+        case ExEval.Pipeline.run_response_processors(data, processors) do
+          {:ok, result} -> {:ok, result}
+          {:error, reason} -> {:error, :response_processor, reason}
+          result -> {:ok, result}
+        end
+
+      :postprocessors ->
+        case ExEval.Pipeline.run_postprocessors(data, processors) do
+          {:ok, result} -> {:ok, result}
+          {:error, reason} -> {:error, :postprocessor, reason}
+          result -> {:ok, result}
+        end
+    end
   end
 
   defp get_response_and_prompt(eval_case, response_fn, context) do
@@ -459,26 +591,69 @@ defmodule ExEval.Runner do
     end
   end
 
-  defp run_judge(dataset, response, judge_prompt) do
-    judge_config = ExEval.Dataset.judge_config(dataset)
+  defp run_judge(dataset, response, judge_prompt, state) do
+    dataset_judge_config = ExEval.Dataset.judge_config(dataset)
+    eval_config = state.options[:eval_config]
 
-    ExEval.Judge.evaluate(
-      ExEval.new(
-        judge_provider: judge_config.provider,
-        config: judge_config.config
-      ),
-      response,
-      judge_prompt
-    )
+    # Determine which judge configuration to use
+    judge =
+      cond do
+        # Dataset has a specific judge
+        dataset_judge_config.judge ->
+          # Convert dataset config to tuple format
+          config_list = Map.to_list(dataset_judge_config.config)
+
+          if config_list == [] do
+            dataset_judge_config.judge
+          else
+            {dataset_judge_config.judge, config_list}
+          end
+
+        # Use ExEval's judge configuration
+        eval_config.judge ->
+          eval_config.judge
+
+        # No judge configured
+        true ->
+          raise ArgumentError, """
+          No judge configured.
+
+          Configure one when creating the ExEval config:
+
+              ExEval.new()
+              |> ExEval.put_judge(MyApp.CustomJudge, model: "gpt-4")
+          """
+      end
+
+    ExEval.Evaluator.evaluate(judge, response, judge_prompt)
   end
 
   defp format_judge_result(judge_result, response) do
     case judge_result do
-      {:ok, true, reasoning} ->
-        %{status: :passed, reasoning: reasoning}
+      {:ok, result, metadata} when is_map(metadata) ->
+        base_result = %{
+          result: result,
+          metadata: metadata,
+          response: response
+        }
 
-      {:ok, false, reasoning} ->
-        %{status: :failed, reasoning: reasoning, response: response}
+        # Extract reasoning from metadata if present
+        base_with_reasoning =
+          if reasoning = metadata[:reasoning] do
+            Map.put(base_result, :reasoning, reasoning)
+          else
+            base_result
+          end
+
+        # Set status based on result type
+        final_status =
+          case result do
+            true -> :passed
+            false -> :failed
+            _ -> :evaluated
+          end
+
+        Map.put(base_with_reasoning, :status, final_status)
 
       {:error, error} ->
         %{status: :error, error: "Judge error: #{inspect(error)}"}
@@ -516,42 +691,25 @@ defmodule ExEval.Runner do
     |> Base.encode16(case: :lower)
   end
 
-  defp broadcast_update(state) do
-    if Code.ensure_loaded?(Phoenix.PubSub) do
-      pubsub = state.options[:pubsub] || ExEval.PubSub
-
-      Phoenix.PubSub.broadcast(
-        pubsub,
-        "runner:#{state.id}",
-        {:runner_update, state.id, public_state(state)}
-      )
-    end
+  # Convert inline ExEval config to a dataset that can be processed
+  defp convert_inline_config_to_dataset(%ExEval{dataset: dataset, response_fn: response_fn})
+       when not is_nil(dataset) and not is_nil(response_fn) do
+    # Create a map that implements the Dataset protocol
+    [
+      %{
+        cases: dataset,
+        response_fn: response_fn,
+        metadata: %{type: :inline, source: :config}
+      }
+    ]
   end
 
-  defp broadcast_progress(state, completed_count) do
-    if Code.ensure_loaded?(Phoenix.PubSub) do
-      pubsub = state.options[:pubsub] || ExEval.PubSub
-
-      total_count =
-        state.datasets
-        |> Enum.map(&length(ExEval.Dataset.cases(&1)))
-        |> Enum.sum()
-
-      Phoenix.PubSub.broadcast(
-        pubsub,
-        "runner:#{state.id}",
-        {:runner_progress, state.id,
-         %{
-           completed: completed_count,
-           total: total_count,
-           percent: Float.round(completed_count / total_count * 100, 1)
-         }}
-      )
-    end
+  defp convert_inline_config_to_dataset(%ExEval{}) do
+    []
   end
 
   defp public_state(state) do
-    %{
+    base_state = %{
       id: state.id,
       status: state.status,
       started_at: state.started_at,
@@ -561,5 +719,66 @@ defmodule ExEval.Runner do
       error: state.error,
       options: state.options
     }
+
+    # Add metrics if run is completed
+    if state.status == :completed and state.results != [] do
+      Map.put(base_state, :metrics, ExEval.Metrics.compute(state.results))
+    else
+      base_state
+    end
+  end
+
+  defp build_run_metadata(eval_config, opts) do
+    base_metadata = Keyword.get(opts, :metadata, %{})
+
+    Map.merge(base_metadata, %{
+      experiment: eval_config.experiment,
+      params: eval_config.params,
+      tags: eval_config.tags,
+      artifact_logging: eval_config.artifact_logging
+    })
+  end
+
+  defp save_to_store(store_config, run_data) do
+    case store_config do
+      {module, _opts} when is_atom(module) ->
+        if function_exported?(module, :save_run, 1) do
+          # Store implementations handle their own configuration
+          case module.save_run(run_data) do
+            :ok -> :ok
+            {:ok, _} = result -> result
+            {:error, _} = error -> 
+              Logger.error("Store save failed: #{inspect(error)}")
+              error
+            other ->
+              Logger.error("Store save returned unexpected value: #{inspect(other)}")
+              {:error, :invalid_store_response}
+          end
+        else
+          Logger.error("Store module #{inspect(module)} does not implement save_run/1")
+          {:error, :invalid_store_module}
+        end
+
+      module when is_atom(module) ->
+        if function_exported?(module, :save_run, 1) do
+          case module.save_run(run_data) do
+            :ok -> :ok
+            {:ok, _} = result -> result
+            {:error, _} = error ->
+              Logger.error("Store save failed: #{inspect(error)}")
+              error
+            other ->
+              Logger.error("Store save returned unexpected value: #{inspect(other)}")
+              {:error, :invalid_store_response}
+          end
+        else
+          Logger.error("Store module #{inspect(module)} does not implement save_run/1")
+          {:error, :invalid_store_module}
+        end
+          
+      _ ->
+        Logger.error("Invalid store configuration: #{inspect(store_config)}")
+        {:error, :invalid_store_config}
+    end
   end
 end

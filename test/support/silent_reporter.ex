@@ -1,22 +1,15 @@
-defmodule ExEval.Reporter.Silent do
+defmodule ExEval.SilentReporter do
   @moduledoc """
-  A silent reporter for tests that doesn't output anything.
+  A reporter that produces no output, used for keeping test output clean.
   """
-
   @behaviour ExEval.Reporter
 
   @impl true
-  def init(_runner, _config) do
-    {:ok, %{}}
-  end
+  def init(_runner, _config), do: {:ok, %{}}
 
   @impl true
-  def report_result(_result, state, _config) do
-    {:ok, state}
-  end
+  def report_result(_result, state, _config), do: {:ok, state}
 
   @impl true
-  def finalize(_runner, _state, _config) do
-    :ok
-  end
+  def finalize(_runner, _state, _config), do: :ok
 end

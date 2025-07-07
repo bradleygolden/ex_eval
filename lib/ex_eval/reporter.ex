@@ -16,10 +16,11 @@ defmodule ExEval.Reporter do
   A single evaluation result.
   """
   @type result :: %{
-          required(:status) => :passed | :failed | :error,
+          required(:status) => :evaluated | :error,
           required(:input) => any(),
           required(:judge_prompt) => String.t(),
-          optional(:reasoning) => String.t(),
+          optional(:result) => any(),
+          optional(:metadata) => map(),
           optional(:response) => String.t(),
           optional(:error) => String.t(),
           optional(:category) => atom() | String.t(),
@@ -65,21 +66,6 @@ defmodule ExEval.Reporter do
   @callback finalize(runner(), state :: any(), config()) :: :ok | {:error, reason :: any()}
 
   @doc """
-  Check if the PubSub reporter is available.
-
-  Returns true if Phoenix.PubSub is loaded and the reporter module is defined.
-
-  ## Examples
-
-      iex> ExEval.Reporter.pubsub_available?()
-      false  # Unless phoenix_pubsub is in deps
-
-  """
-  def pubsub_available? do
-    Code.ensure_loaded?(Phoenix.PubSub)
-  end
-
-  @doc """
   List all available reporters.
 
   Returns a list of reporter modules that are currently loaded and available.
@@ -91,16 +77,7 @@ defmodule ExEval.Reporter do
 
   """
   def available_reporters do
-    base_reporters = [ExEval.Reporter.Console]
-
-    optional_reporters =
-      if pubsub_available?() do
-        [ExEval.Reporter.PubSub]
-      else
-        []
-      end
-
-    base_reporters ++ optional_reporters
+    [ExEval.Reporter.Console]
   end
 
   @doc """
@@ -128,15 +105,6 @@ defmodule ExEval.Reporter do
           required_deps: [],
           required_config: [],
           optional_config: [:trace]
-        }
-
-      ExEval.Reporter.PubSub ->
-        %{
-          name: "PubSub",
-          description: "Broadcasts evaluation results to Phoenix.PubSub for real-time updates",
-          required_deps: [:phoenix_pubsub],
-          required_config: [:pubsub],
-          optional_config: [:topic, :broadcast_results]
         }
 
       _ ->

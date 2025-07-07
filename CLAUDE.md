@@ -5,10 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Usage Rules
 
 For detailed usage guidelines and best practices, see [usage-rules.md](./usage-rules.md). This file contains comprehensive rules for:
-- Writing evaluation modules using ExEval.DatasetProvider.Module
+- Writing inline evaluation configurations
 - Configuring the evaluation environment
 - Creating effective judge prompts
-- Running evaluations with mix ai.eval
+- Running evaluations with ExEval.run/1 and ExEval.run_async/1
 - Implementing custom judge providers
 
 ## Preferences
@@ -36,47 +36,44 @@ mix format
 # Compile the project
 mix compile
 
-# Run evaluations
-mix ai.eval                    # Run all evaluations
-mix ai.eval path/to/eval.exs  # Run specific evaluation file
-mix ai.eval --category security # Run only security evaluations
+# Run evaluations (using inline configuration)
+# See examples/ directory for sample scripts
+# ExEval.run(config)             # Run evaluations asynchronously (default)
+# ExEval.run(config, async: false)  # Run evaluations synchronously
 ```
 
 ## Architecture Overview
 
-ExEval is a dataset-oriented evaluation framework for AI/LLM applications using the LLM-as-judge pattern. It includes an OTP application with supervision tree for managing async evaluation runs.
+ExEval is the core evaluation framework for AI/LLM applications using the LLM-as-judge pattern. It provides an OTP application with supervision tree for managing async evaluation runs, with a clean functional API for inline configuration.
+
+**Note: This repository contains only the core framework. External judge providers (like LangChain integrations) are maintained in separate repositories.**
 
 ### OTP Application Structure
 
 The `ExEval.Application` starts a supervision tree with:
 - **ExEval.RunnerRegistry** - Registry for tracking active evaluation runs by ID
 - **ExEval.RunnerSupervisor** - DynamicSupervisor for spawning runner processes
-- **ExEval.PubSub** (optional) - Phoenix.PubSub instance for real-time updates
 
 The architecture consists of:
 
 ### Core Components
 
-1. **ExEval.DatasetProvider** - Behaviour for dataset providers that load evaluation cases from various sources
-   - Optional CRUD callbacks for GUI support: `create_evaluation/1`, `update_evaluation/2`, `delete_evaluation/1`
-   - Case management callbacks: `create_case/2`, `update_case/3`, `delete_case/2`
-   - Import/export callbacks: `import_cases/3`, `export_cases/2`
-   - Capability detection via `get_capabilities/1` for UI feature discovery
+1. **ExEval.Dataset** - Protocol for handling evaluation datasets
+   - Supports inline configuration via Maps
+   - `cases/1` - Returns list of evaluation cases
+   - `response_fn/1` - Returns response function for generating AI responses
+   - `setup_fn/1` - Optional context setup function
+   - `judge_config/1` - Optional judge configuration override
+   - `metadata/1` - Returns dataset metadata
 
-2. **ExEval.DatasetProvider.Module** - Module-based dataset provider with macro DSL implementation.
-   - `response_fn` - Function that generates AI responses to evaluate
-   - `eval_dataset` - List of evaluation cases with inputs and judge prompts
-   - Optional `dataset_setup` - Context setup for evaluations
-   - Optional `judge_provider` and `config` - Custom judge provider configuration
-
-3. **ExEval.Judge** - Orchestrates the evaluation process by:
+2. **ExEval.Evaluator** - Orchestrates the evaluation process by:
    - Building prompts that combine criteria and responses
    - Calling the configured judge provider (LLM) to judge responses
    - Parsing YES/NO judgments with reasoning
 
-4. **ExEval.Runner** - Async-first GenServer implementation for executing evaluation suites:
-   - **Async execution**: `run/2` returns `{:ok, run_id}` immediately
-   - **Sync execution**: `run_sync/2` for blocking execution with timeout support
+3. **ExEval.Runner** - Async-first GenServer implementation for executing evaluation suites:
+   - **Async execution**: `run/1` returns `{:ok, run_id}` immediately
+   - **Sync execution**: `run_sync/1` for blocking execution with timeout support
    - **Process supervision**: All runners are supervised by `ExEval.RunnerSupervisor`
    - **Registry tracking**: Active runs tracked in `ExEval.RunnerRegistry`
    - **Real-time updates**: Broadcasts progress via Phoenix.PubSub
@@ -85,31 +82,26 @@ The architecture consists of:
    - **Multi-turn conversations**: Functional state passing for conversation history
    - **Run metadata**: Custom metadata support for tracking and filtering
 
-5. **Judge Provider System** - Pluggable LLM provider interface:
-   - `ExEval.JudgeProvider` behavior defines the contract
-   - `ExEval.JudgeProvider.LangChain` - Default OpenAI judge provider
-   - Mock judge provider in `evals/support/judge_provider/eval_mock.ex` for testing
+4. **Judge System** - Pluggable LLM provider interface:
+   - `ExEval.Judge` behavior defines the contract  
+   - Tests use inline mock modules for isolation
+   - External judge providers available as separate packages
 
-6. **Reporter System** - Pluggable output and monitoring interface:
+5. **Reporter System** - Pluggable output and monitoring interface:
    - `ExEval.Reporter` behavior for custom output formats
    - `ExEval.Reporter.Console` - Default colored console output
-   - `ExEval.Reporter.PubSub` - Phoenix.PubSub integration for real-time updates (optional)
-   - Helper functions: `pubsub_available?/0`, `available_reporters/0`, `reporter_info/1`
 
 ### Directory Structure
 
 - `lib/ex_eval/` - Core framework code
-  - `lib/ex_eval/reporter/` - Reporter implementations (Console, PubSub)
-- `lib/mix/tasks/eval.ex` - Mix task for running evaluations
-- `evals/` - Example evaluation suites (compiled only in dev/test)
-- `evals/support/` - Support code like mock judge provider (dev/test only)
+  - `lib/ex_eval/reporter/` - Reporter implementations (Console)
 - `test/` - Unit tests for the framework
 
 ### Key Design Patterns
 
-1. **Compile-time Macro Expansion**: The DatasetProvider.Module macro generates functions at compile time, allowing response functions to be regular Elixir functions while maintaining a data-oriented API.
+1. **Inline Configuration**: Req-style functional API where datasets and response functions are defined directly in the configuration struct, eliminating the need for separate modules.
 
-2. **Environment-based Compilation**: Uses `elixirc_paths` in mix.exs to exclude test/eval code from production builds.
+2. **Protocol-based Extensibility**: The Dataset protocol allows different data sources while maintaining a consistent interface.
 
 3. **LLM-as-Judge Pattern**: Evaluations use natural language criteria judged by an LLM, returning structured YES/NO responses with reasoning.
 
@@ -119,47 +111,25 @@ The architecture consists of:
 
 When extending ExEval:
 
-1. **New Judge Providers**: Implement the `ExEval.JudgeProvider` behavior with a `call/2` function
-2. **New Dataset Providers**: Implement the `ExEval.DatasetProvider` behaviour with a `load/1` function
-3. **New Evaluation Options**: Update both `ExEval.DatasetProvider.Module` macro and `ExEval.Runner` to handle new options
-3. **New Reporters**: Implement the `ExEval.Reporter` behavior with `init/2`, `report_result/3`, and `finalize/3` callbacks
+1. **New Judge Providers**: Implement the `ExEval.Judge` behavior with a `call/3` function
+2. **New Dataset Sources**: Implement the `ExEval.Dataset` protocol for custom data sources
+3. **New Evaluation Options**: Update `ExEval` struct and `ExEval.Runner` to handle new options
+4. **New Reporters**: Implement the `ExEval.Reporter` behavior with `init/2`, `report_result/3`, and `finalize/3` callbacks
 
 ### Testing Strategy
 
-- Unit tests focus on core logic (Judge, Runner, etc.)
-- Mock judge provider enables testing without real LLM calls
-- Example evals in `evals/` demonstrate usage and serve as integration tests
+- Unit tests focus on core logic (Evaluator, Runner, etc.)
+- Tests use inline mock modules for isolation and clarity
 
-### Phoenix LiveView Integration
+### External Integrations
 
-ExEval supports real-time evaluation monitoring through the PubSub reporter:
+ExEval provides a pluggable architecture that supports external packages:
 
-1. **Add phoenix_pubsub dependency**:
-   ```elixir
-   {:phoenix_pubsub, "~> 2.0"}
-   ```
+- **Judge Providers**: External packages can implement the `ExEval.Judge` behavior for different LLM providers
+- **Reporters**: External packages can implement the `ExEval.Reporter` behavior for different output formats and integrations
+- **Dataset Sources**: Custom data sources can implement the `ExEval.Dataset` protocol
 
-2. **Configure the PubSub reporter**:
-   ```elixir
-   ExEval.Runner.run(evaluations,
-     reporter: ExEval.Reporter.PubSub,
-     reporter_config: %{
-       pubsub: MyApp.PubSub,
-       topic: "evaluations:#{run_id}",
-       broadcast_results: true  # Include full results in progress events
-     }
-   )
-   ```
-
-3. **Subscribe to events in LiveView**:
-   ```elixir
-   Phoenix.PubSub.subscribe(MyApp.PubSub, "evaluations:#{run_id}")
-   
-   # Receive events:
-   # {:evaluation_started, %{run_id, total_cases, started_at, metadata}}
-   # {:evaluation_progress, %{run_id, result, completed, total, percent}}
-   # {:evaluation_completed, %{run_id, passed, failed, errors, duration_ms, metadata, finished_at}}
-   ```
+See the ExEval ecosystem packages for specific integrations (LangChain, Phoenix PubSub, etc.).
 
 ## Memory
 

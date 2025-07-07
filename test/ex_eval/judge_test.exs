@@ -1,88 +1,63 @@
 defmodule ExEval.JudgeTest do
   use ExUnit.Case
 
+  # Inline test judge mock
+  defmodule TestJudge do
+    @behaviour ExEval.Judge
+
+    @impl true
+    def call(_response, _criteria, config) do
+      case config[:mock_result] do
+        nil -> {:ok, true, %{reasoning: "Test response"}}
+        true -> {:ok, true, %{reasoning: "Test response passed"}}
+        false -> {:ok, false, %{reasoning: "Test response failed"}}
+        result -> result
+      end
+    end
+  end
+
   describe "evaluate/3" do
-    test "returns {:ok, true, reasoning} for YES response" do
-      config = %ExEval{
-        judge_provider: ExEval.JudgeProvider.TestMock,
-        config: %{mock_response: "YES\nThe response is correct"}
-      }
+    test "returns {:ok, true, reasoning} for structured result" do
+      judge = {TestJudge, mock_result: {:ok, true, %{reasoning: "The response is correct"}}}
 
-      result = ExEval.Judge.evaluate(config, "test response", "check if correct")
+      result = ExEval.Evaluator.evaluate(judge, "test response", "check if correct")
 
-      assert {:ok, true, "The response is correct"} = result
+      assert {:ok, true, %{reasoning: "The response is correct"}} = result
     end
 
-    test "returns {:ok, false, reasoning} for NO response" do
-      config = %ExEval{
-        judge_provider: ExEval.JudgeProvider.TestMock,
-        config: %{mock_response: "NO\nThe response is incorrect"}
-      }
+    test "returns {:ok, false, reasoning} for structured result" do
+      judge = {TestJudge, mock_result: {:ok, false, %{reasoning: "The response is incorrect"}}}
 
-      result = ExEval.Judge.evaluate(config, "test response", "check if correct")
+      result = ExEval.Evaluator.evaluate(judge, "test response", "check if correct")
 
-      assert {:ok, false, "The response is incorrect"} = result
+      assert {:ok, false, %{reasoning: "The response is incorrect"}} = result
     end
 
-    test "handles PASS/FAIL responses" do
-      config_pass = %ExEval{
-        judge_provider: ExEval.JudgeProvider.TestMock,
-        config: %{mock_response: "PASS\nLooks good"}
-      }
+    test "handles boolean shortcuts" do
+      judge_pass = {TestJudge, mock_result: true}
+      judge_fail = {TestJudge, mock_result: false}
 
-      config_fail = %ExEval{
-        judge_provider: ExEval.JudgeProvider.TestMock,
-        config: %{mock_response: "FAIL\nNot good"}
-      }
+      assert {:ok, true, %{reasoning: "Test response passed"}} =
+               ExEval.Evaluator.evaluate(judge_pass, "response", "criteria")
 
-      assert {:ok, true, "Looks good"} =
-               ExEval.Judge.evaluate(config_pass, "response", "criteria")
-
-      assert {:ok, false, "Not good"} = ExEval.Judge.evaluate(config_fail, "response", "criteria")
+      assert {:ok, false, %{reasoning: "Test response failed"}} =
+               ExEval.Evaluator.evaluate(judge_fail, "response", "criteria")
     end
 
-    test "handles responses without reasoning" do
-      config = %ExEval{
-        judge_provider: ExEval.JudgeProvider.TestMock,
-        config: %{mock_response: "YES"}
-      }
+    test "handles default case when no mock_result provided" do
+      judge = TestJudge
 
-      result = ExEval.Judge.evaluate(config, "test response", "check")
+      result = ExEval.Evaluator.evaluate(judge, "test response", "check")
 
-      assert {:ok, true, "YES"} = result
-    end
-
-    test "returns error for invalid response format" do
-      config = %ExEval{
-        judge_provider: ExEval.JudgeProvider.TestMock,
-        config: %{mock_response: "MAYBE\nNot sure"}
-      }
-
-      result = ExEval.Judge.evaluate(config, "test response", "check")
-
-      assert {:error, "Could not parse judgment: MAYBE\nNot sure"} = result
+      assert {:ok, true, %{reasoning: "Test response"}} = result
     end
 
     test "passes through judge provider errors" do
-      config = %ExEval{
-        judge_provider: ExEval.JudgeProvider.TestMock,
-        config: %{mock_response: {:error, "API error"}}
-      }
+      judge = {TestJudge, mock_result: {:error, "API error"}}
 
-      result = ExEval.Judge.evaluate(config, "test response", "check")
+      result = ExEval.Evaluator.evaluate(judge, "test response", "check")
 
       assert {:error, "API error"} = result
-    end
-
-    test "handles case insensitive responses" do
-      config = %ExEval{
-        judge_provider: ExEval.JudgeProvider.TestMock,
-        config: %{mock_response: "yes\nAll good"}
-      }
-
-      result = ExEval.Judge.evaluate(config, "test response", "check")
-
-      assert {:ok, true, "All good"} = result
     end
   end
 end

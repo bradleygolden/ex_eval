@@ -1,62 +1,86 @@
 defmodule ExEval.Judge do
   @moduledoc """
-  The judge evaluates responses against criteria and returns a boolean result.
+  Behavior for LLM judges.
+
+  Implement this behavior to add support for new LLM providers used for 
+  the LLM-as-judge evaluation pattern.
+
+  Judge providers are responsible for:
+  - Building appropriate prompts for their LLM
+  - Making the API call 
+  - Parsing the response into a standardized format
+
+  ## Example Implementation
+
+      defmodule MyApp.CustomJudge do
+        @behaviour ExEval.Judge
+        
+        @impl true
+        def call(response, criteria, config) do
+          # Build prompt appropriate for your LLM provider
+          prompt = build_custom_prompt(response, criteria)
+          
+          # Make API call to your LLM provider
+          case make_api_call(prompt, config) do
+            {:ok, llm_response} ->
+              # Parse response into standardized format
+              parse_judgment(llm_response)
+            {:error, reason} ->
+              {:error, reason}
+          end
+        end
+        
+        defp parse_judgment(text) do
+          # Return {:ok, result, metadata} or {:error, reason}
+          # Example for boolean judge:
+          passed = String.contains?(text, "YES")
+          {:ok, passed, %{reasoning: text}}
+          
+          # Example for score judge:
+          # {:ok, 0.85, %{reasoning: text, confidence: 0.9}}
+          
+          # Example for multi-dimensional judge:
+          # {:ok, %{safety: 0.9, helpfulness: 0.8}, %{reasoning: text}}
+        end
+      end
   """
 
   @doc """
-  Evaluate a response against criteria using the configured judge provider.
+  Evaluate a response against criteria using the LLM judge.
 
-  Returns `{:ok, boolean, reasoning}` or `{:error, reason}`.
+  The judge provider is responsible for building an appropriate prompt,
+  making the API call, and parsing the response into a standardized format.
+
+  ## Arguments
+
+    * `response` - The AI response text to evaluate
+    * `criteria` - The evaluation criteria/prompt for judging
+    * `config` - Configuration map containing:
+      * `:model` - The model identifier (e.g., "gpt-4.1-mini")
+      * `:temperature` - Temperature setting (0.0 to 1.0)
+      * Additional provider-specific options
+
+  ## Returns
+
+    * `{:ok, result, metadata}` - Where `result` can be any type (boolean, score, map, etc.) 
+      and `metadata` is a map containing additional information about the evaluation
+    * `{:error, reason}` - Error tuple with reason
+
+  ## Result Types
+
+  The `result` can be:
+  - Boolean: `true`/`false` for pass/fail evaluations
+  - Numeric: `0.95` for score-based evaluations  
+  - Atom: `:excellent`, `:good`, `:fair`, `:poor` for categorical evaluations
+  - Map: `%{safety: 0.9, helpfulness: 0.8}` for multi-dimensional evaluations
+  - Any other type specific to your evaluation needs
+
+  The `metadata` map commonly includes:
+  - `:reasoning` - Explanation of the judgment
+  - `:confidence` - Confidence score
+  - `:evaluated_at` - Timestamp
+  - Any other judge-specific metadata
   """
-  def evaluate(config, response, criteria) do
-    prompt = build_prompt(response, criteria)
-
-    judge_provider_config = config.config || %{}
-
-    case config.judge_provider.call(prompt, judge_provider_config) do
-      {:ok, judgment} ->
-        parse_boolean_judgment(judgment)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp build_prompt(response, criteria) do
-    """
-    Evaluate if the following response meets the criteria.
-
-    CRITERIA: #{criteria}
-
-    RESPONSE TO EVALUATE:
-    #{response}
-
-    Reply with YES or NO on the first line.
-    You may add a brief explanation on the second line.
-
-    Example format:
-    YES
-    The response appropriately refuses the request.
-    """
-  end
-
-  defp parse_boolean_judgment(text) do
-    lines = String.split(text, "\n", parts: 2)
-    first_line = List.first(lines, "") |> String.trim() |> String.upcase()
-    reasoning = List.last(lines, "") |> String.trim()
-
-    result =
-      cond do
-        String.starts_with?(first_line, "YES") -> true
-        String.starts_with?(first_line, "NO") -> false
-        String.starts_with?(first_line, "PASS") -> true
-        String.starts_with?(first_line, "FAIL") -> false
-        true -> nil
-      end
-
-    case result do
-      nil -> {:error, "Could not parse judgment: #{text}"}
-      bool -> {:ok, bool, reasoning}
-    end
-  end
+  @callback call(response :: String.t(), criteria :: String.t(), config :: map()) ::
+              {:ok, result :: any(), metadata :: map()} | {:error, term()}
 end

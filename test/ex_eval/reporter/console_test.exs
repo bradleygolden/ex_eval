@@ -97,9 +97,6 @@ defmodule ExEval.Reporter.ConsoleTest do
 
       state = %ExEval.Reporter.Console{
         trace: true,
-        results: [],
-        failed_results: [],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 
@@ -133,8 +130,6 @@ defmodule ExEval.Reporter.ConsoleTest do
 
       state = %ExEval.Reporter.Console{
         trace: false,
-        failed_results: [],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 
@@ -143,7 +138,7 @@ defmodule ExEval.Reporter.ConsoleTest do
           ExEval.Reporter.Console.finalize(runner, state, %{})
         end)
 
-      assert output =~ "3 evaluations, 0 failures"
+      assert output =~ "3 evaluations"
       assert output =~ "Finished in 1.0s"
     end
 
@@ -169,8 +164,6 @@ defmodule ExEval.Reporter.ConsoleTest do
 
       state = %ExEval.Reporter.Console{
         trace: false,
-        failed_results: [failed_result],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 
@@ -182,7 +175,7 @@ defmodule ExEval.Reporter.ConsoleTest do
       assert output =~ "1) test input [validation]"
       # Category now shown inline
       assert output =~ "Does not meet criteria"
-      assert output =~ "1 evaluations,"
+      assert output =~ "1 evaluations"
       assert output =~ "1 failure"
     end
 
@@ -207,8 +200,6 @@ defmodule ExEval.Reporter.ConsoleTest do
 
       state = %ExEval.Reporter.Console{
         trace: false,
-        failed_results: [],
-        error_results: [error_result],
         printed_headers: MapSet.new()
       }
 
@@ -219,8 +210,7 @@ defmodule ExEval.Reporter.ConsoleTest do
 
       assert output =~ "1) error case [network]"
       assert output =~ "Network timeout"
-      assert output =~ "1 evaluations,"
-      assert output =~ "0 failures"
+      assert output =~ "1 evaluations"
       assert output =~ "1 error"
     end
 
@@ -246,8 +236,6 @@ defmodule ExEval.Reporter.ConsoleTest do
 
       state = %ExEval.Reporter.Console{
         trace: false,
-        failed_results: [failed_result],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 
@@ -312,12 +300,10 @@ defmodule ExEval.Reporter.ConsoleTest do
         ]
       }
 
-      failed_result = Enum.find(runner.results, &(&1.status == :failed))
+      _failed_result = Enum.find(runner.results, &(&1.status == :failed))
 
       state = %ExEval.Reporter.Console{
         trace: false,
-        failed_results: [failed_result],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 
@@ -327,7 +313,7 @@ defmodule ExEval.Reporter.ConsoleTest do
         end)
 
       assert output =~ "1) test3 [auth]"
-      assert output =~ "5 evaluations,"
+      assert output =~ "5 evaluations"
       assert output =~ "1 failure"
     end
 
@@ -344,8 +330,6 @@ defmodule ExEval.Reporter.ConsoleTest do
 
       state1 = %ExEval.Reporter.Console{
         trace: false,
-        failed_results: [],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 
@@ -368,8 +352,6 @@ defmodule ExEval.Reporter.ConsoleTest do
 
       state2 = %ExEval.Reporter.Console{
         trace: false,
-        failed_results: [],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 
@@ -415,13 +397,10 @@ defmodule ExEval.Reporter.ConsoleTest do
         ]
       }
 
-      failed_result = Enum.find(runner.results, &(&1.status == :failed))
+      _failed_result = Enum.find(runner.results, &(&1.status == :failed))
 
       state = %ExEval.Reporter.Console{
         trace: true,
-        failed_results: [failed_result],
-        error_results: [],
-        results: runner.results,
         printed_headers: MapSet.new()
       }
 
@@ -430,7 +409,7 @@ defmodule ExEval.Reporter.ConsoleTest do
           ExEval.Reporter.Console.finalize(runner, state, %{})
         end)
 
-      assert output =~ "3 evaluations,"
+      assert output =~ "3 evaluations"
       assert output =~ "1 failure"
       assert output =~ "Finished in 1.0s"
     end
@@ -438,8 +417,6 @@ defmodule ExEval.Reporter.ConsoleTest do
     test "prints inline format for each result" do
       state = %ExEval.Reporter.Console{
         trace: true,
-        failed_results: [],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 
@@ -471,15 +448,12 @@ defmodule ExEval.Reporter.ConsoleTest do
       assert output =~ "✓"
       assert output =~ "Eval [basic] test2"
       assert output =~ "✗"
-      assert output =~ "Failure:"
       assert output =~ "Test failed"
     end
 
     test "prints results from different modules inline" do
       state = %ExEval.Reporter.Console{
         trace: true,
-        failed_results: [],
-        error_results: [],
         printed_headers: MapSet.new()
       }
 

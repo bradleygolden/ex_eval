@@ -37,44 +37,12 @@ defprotocol ExEval.Dataset do
   @doc """
   Get judge configuration.
 
-  Returns a map with :provider and :config keys for the LLM judge.
+  Returns a map with :judge and :config keys for the LLM judge.
   """
   def judge_config(dataset)
 end
 
-# Implementation for module-based datasets (backward compatibility)
-defimpl ExEval.Dataset, for: Atom do
-  def cases(module) do
-    dataset = ExEval.DatasetProvider.Module.load(module: module)
-    dataset.cases
-  end
-
-  def response_fn(module) do
-    dataset = ExEval.DatasetProvider.Module.load(module: module)
-    dataset.response_fn
-  end
-
-  def metadata(module) do
-    dataset = ExEval.DatasetProvider.Module.load(module: module)
-    Map.get(dataset, :metadata, %{module: module})
-  end
-
-  def setup_fn(module) do
-    dataset = ExEval.DatasetProvider.Module.load(module: module)
-    Map.get(dataset, :setup_fn)
-  end
-
-  def judge_config(module) do
-    dataset = ExEval.DatasetProvider.Module.load(module: module)
-
-    %{
-      provider: Map.get(dataset, :judge_provider, ExEval.JudgeProvider.LangChain),
-      config: Map.get(dataset, :config, %{})
-    }
-  end
-end
-
-# Implementation for map-based datasets (for Ecto/database)
+# Implementation for map-based datasets (inline configuration)
 defimpl ExEval.Dataset, for: Map do
   def cases(%{cases: cases}), do: cases
   def cases(_), do: []
@@ -89,8 +57,10 @@ defimpl ExEval.Dataset, for: Map do
   def setup_fn(_), do: nil
 
   def judge_config(map) do
+    # Return the dataset's judge configuration if specified
+    # The runner will merge this with the ExEval config
     %{
-      provider: Map.get(map, :judge_provider, ExEval.JudgeProvider.LangChain),
+      judge: Map.get(map, :judge),
       config: Map.get(map, :config, %{})
     }
   end
