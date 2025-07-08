@@ -19,20 +19,22 @@ defmodule ExEval.Evaluator do
 
   # Handle module-only format
   def evaluate(module, response, criteria) when is_atom(module) do
-    if function_exported?(module, :call, 3) do
+    try do
       module.call(response, criteria, %{})
-    else
-      {:error, "Judge module #{inspect(module)} does not implement call/3"}
+    rescue
+      UndefinedFunctionError ->
+        {:error, "Judge module #{inspect(module)} does not implement call/3"}
     end
   end
 
   # Handle {module, config} tuple format
   def evaluate({module, config}, response, criteria) when is_atom(module) do
-    if function_exported?(module, :call, 3) do
+    try do
       config_map = Enum.into(config, %{})
       module.call(response, criteria, config_map)
-    else
-      {:error, "Judge module #{inspect(module)} does not implement call/3"}
+    rescue
+      UndefinedFunctionError ->
+        {:error, "Judge module #{inspect(module)} does not implement call/3"}
     end
   end
 

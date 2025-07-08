@@ -12,7 +12,7 @@ defmodule ExEval do
         %{input: "What is 2+2?", judge_prompt: "Is the answer correct?", category: :math},
         %{input: "Tell me about safety", judge_prompt: "Is the response helpful?", category: :safety}
       ]
-      
+
       # Define your AI response function
       response_fn = fn input ->
         case input do
@@ -20,9 +20,9 @@ defmodule ExEval do
           _ -> "I don't know"
         end
       end
-      
+
       # Configure with custom judge
-      config = 
+      config =
         ExEval.new()
         |> ExEval.put_judge(MyApp.CustomJudge, model: "gpt-4")
         |> ExEval.put_dataset(dataset)
@@ -31,10 +31,10 @@ defmodule ExEval do
 
       # Run evaluations asynchronously (default)
       {:ok, run_id} = ExEval.run(config)
-      
+
       # Check status
       {:ok, state} = ExEval.Runner.get_run(run_id)
-      
+
       # Run evaluations synchronously when needed
       results = ExEval.run(config, async: false)
 
@@ -49,7 +49,7 @@ defmodule ExEval do
           category: :math
         }
       ]
-      
+
       response_fn = fn input ->
         # Your AI response logic here
         MyAI.generate_response(input)
@@ -105,7 +105,7 @@ defmodule ExEval do
 
       # Create with defaults
       config = ExEval.new()
-      
+
       # Create with options
       config = ExEval.new(
         judge: {ExEval.LangChain, model: "gpt-4"},
@@ -114,6 +114,15 @@ defmodule ExEval do
       )
   """
   def new(opts \\ []) do
+    # Use environment-specific default reporter if not explicitly set
+    opts =
+      if Keyword.has_key?(opts, :reporter) do
+        opts
+      else
+        default_reporter = Application.get_env(:ex_eval, :reporter, ExEval.Reporter.Console)
+        Keyword.put(opts, :reporter, default_reporter)
+      end
+
     struct(__MODULE__, opts)
   end
 
@@ -129,7 +138,7 @@ defmodule ExEval do
   ## Examples
 
       # Majority consensus
-      config = 
+      config =
         ExEval.new()
         |> ExEval.put_consensus_judge([
           {MyJudge1, model: "gpt-4"},
@@ -137,8 +146,8 @@ defmodule ExEval do
           MyJudge3
         ])
 
-      # Unanimous consensus  
-      config = 
+      # Unanimous consensus
+      config =
         ExEval.new()
         |> ExEval.put_consensus_judge(
           [MyJudge1, MyJudge2],
@@ -146,7 +155,7 @@ defmodule ExEval do
         )
 
       # 75% threshold
-      config = 
+      config =
         ExEval.new()
         |> ExEval.put_consensus_judge(
           [Judge1, Judge2, Judge3, Judge4],
@@ -165,7 +174,7 @@ defmodule ExEval do
   ## Examples
 
       # Weighted voting
-      config = 
+      config =
         ExEval.new()
         |> ExEval.put_weighted_judge([
           {{MyJudge1, model: "gpt-4"}, 0.5},
@@ -185,15 +194,15 @@ defmodule ExEval do
   ## Examples
 
       # Module only (no configuration)
-      config = 
+      config =
         ExEval.new()
         |> ExEval.put_judge(MyApp.CustomJudge)
-        
+
       # Module with configuration
       config =
         ExEval.new()
         |> ExEval.put_judge(MyApp.CustomJudge, model: "gpt-4", temperature: 0.0)
-        
+
       # Using tuple format
       config =
         ExEval.new()
@@ -220,13 +229,13 @@ defmodule ExEval do
       config =
         ExEval.new()
         |> ExEval.put_reporter(ExEval.Reporter.Console)
-        
+
       # Module with configuration
       config =
         ExEval.new()
         |> ExEval.put_reporter(ExEval.Reporter.Console, trace: true)
-        
-      # Using tuple format  
+
+      # Using tuple format
       config =
         ExEval.new()
         |> ExEval.put_reporter({ExEval.Reporter.Console, trace: true})
@@ -276,8 +285,8 @@ defmodule ExEval do
       # Using string
       config = ExEval.new()
       |> ExEval.put_experiment("gpt4_safety_v2")
-      
-      # Using atom  
+
+      # Using atom
       config = ExEval.new()
       |> ExEval.put_experiment(:safety_eval_2024)
   """
@@ -349,7 +358,7 @@ defmodule ExEval do
           category: :safety
         }
       ]
-      
+
       config = ExEval.new()
       |> ExEval.put_dataset(dataset)
   """
@@ -372,7 +381,7 @@ defmodule ExEval do
           _ -> "I don't know"
         end
       end
-      
+
       config = ExEval.new()
       |> ExEval.put_response_fn(response_fn)
   """
@@ -494,13 +503,13 @@ defmodule ExEval do
       config =
         ExEval.new()
         |> ExEval.put_store(MyApp.PostgresStore)
-        
+
       # Module with configuration
       config =
         ExEval.new()
         |> ExEval.put_store(MyApp.S3Store, bucket: "eval-results")
-        
-      # Using tuple format  
+
+      # Using tuple format
       config =
         ExEval.new()
         |> ExEval.put_store({MyApp.RedisStore, ttl: 3600})
@@ -523,7 +532,7 @@ defmodule ExEval do
 
   ## Options
 
-  - `:async` - When `true` (default), runs asynchronously and returns `{:ok, run_id}`. 
+  - `:async` - When `true` (default), runs asynchronously and returns `{:ok, run_id}`.
     When `false`, runs synchronously and returns results.
   - Other options are passed through to the runner.
 
@@ -534,26 +543,26 @@ defmodule ExEval do
         %{input: "What is 2+2?", judge_prompt: "Is the answer correct?", category: :math},
         %{input: "Tell me about safety", judge_prompt: "Is the response helpful?", category: :safety}
       ]
-      
+
       response_fn = fn
         "What is 2+2?" -> "4"
         _ -> "I don't know"
       end
-      
+
       # Configure evaluation
-      config = 
+      config =
         ExEval.new()
         |> ExEval.put_judge(MyApp.CustomJudge, model: "gpt-4")
         |> ExEval.put_dataset(dataset)
         |> ExEval.put_response_fn(response_fn)
         |> ExEval.put_experiment(:math_safety_eval)
-        
+
       # Run asynchronously (default)
       {:ok, run_id} = ExEval.run(config)
-      
+
       # Run synchronously when needed
       results = ExEval.run(config, async: false)
-      
+
       # Monitor async progress
       {:ok, state} = ExEval.Runner.get_run(run_id)
   """
@@ -585,14 +594,14 @@ defmodule ExEval do
           topic: "evaluation:123",
           pubsub: MyApp.PubSub
         )
-      
+
       # Multiple broadcasters (PubSub + Telemetry)
       config = ExEval.new()
       |> ExEval.put_broadcasters([
           {ExEvalPubSub.Broadcaster, topic: "eval:123", pubsub: MyApp.PubSub},
           {ExEvalTelemetry.Broadcaster, prefix: [:my_app, :evaluations]}
         ])
-      
+
       # Disable broadcasting
       config = ExEval.new()
       |> ExEval.put_broadcaster(nil)
@@ -635,7 +644,7 @@ defmodule ExEval do
 
       config = ExEval.new()
       |> ExEval.put_dataset([%{input: "test"}])
-      
+
       case ExEval.validate(config) do
         {:ok, config} -> ExEval.run(config)
         {:error, errors} -> IO.inspect(errors)

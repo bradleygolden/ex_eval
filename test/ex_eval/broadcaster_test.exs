@@ -1,19 +1,66 @@
 defmodule ExEval.BroadcasterTest do
   use ExUnit.Case, async: false
+  alias ExEval.SilentReporter
+  import ExUnit.CaptureLog
+
+  # Helper function to run evaluation with captured logs
+  defp run_with_captured_logs(config, opts) do
+    # Use Agent to store the result while capturing logs
+    {:ok, agent} = Agent.start_link(fn -> nil end)
+
+    # Capture all log levels including warnings and notices
+    _log_output =
+      capture_log([level: :all], fn ->
+        result = ExEval.run(config, opts)
+        Agent.update(agent, fn _state -> result end)
+      end)
+
+    result = Agent.get(agent, & &1)
+    Agent.stop(agent)
+    result
+  end
+
+  # Helper function to run evaluation with captured logs and wait for completion
+  defp run_with_captured_logs_and_wait(config, opts, broadcaster_name) do
+    # Use Agent to store the result while capturing logs
+    {:ok, agent} = Agent.start_link(fn -> nil end)
+
+    # Capture all log levels including warnings and notices
+    _log_output =
+      capture_log([level: :all], fn ->
+        result = ExEval.run(config, opts)
+        Agent.update(agent, fn _state -> result end)
+
+        # Wait for completion event to ensure all broadcaster operations are done
+        receive do
+          {:broadcast_event, ^broadcaster_name, :completed, _data, _prefix} -> :ok
+        after
+          1000 -> :timeout
+        end
+
+        # Wait briefly for async Task.start broadcaster operations to complete
+        # The runner uses Task.start for fire-and-forget broadcaster calls,
+        # so we need a short delay to capture their error logs
+        :timer.sleep(50)
+      end)
+
+    result = Agent.get(agent, & &1)
+    Agent.stop(agent)
+    result
+  end
 
   setup do
-    # Ensure the application is started for these tests
+    # Ensure clean application state before each test
+    Application.stop(:ex_eval)
     Application.ensure_all_started(:ex_eval)
-    
-    # Ensure the registry is running
-    case Process.whereis(ExEval.RunnerRegistry) do
-      nil ->
-        # Start the registry if it's not running
-        Registry.start_link(keys: :unique, name: ExEval.RunnerRegistry)
-      _pid ->
-        :ok
-    end
-    
+
+    # Give the application a moment to fully start
+    Process.sleep(10)
+
+    # Verify supervision tree is running
+    assert Process.whereis(ExEval.RunnerRegistry) != nil, "ExEval.RunnerRegistry not started"
+    assert Process.whereis(ExEval.RunnerSupervisor) != nil, "ExEval.RunnerSupervisor not started"
+
     :ok
   end
 
@@ -76,6 +123,27 @@ defmodule ExEval.BroadcasterTest do
     end
   end
 
+  # Synchronous crashing broadcaster that sends completion signal
+  defmodule SyncCrashingBroadcaster do
+    @behaviour ExEval.Broadcaster
+
+    @impl true
+    def init(config) do
+      {:ok, %{test_pid: config[:test_pid], name: config[:name]}}
+    end
+
+    @impl true
+    def broadcast(event, data, state) do
+      # Send the event to test process first
+      if state.test_pid do
+        send(state.test_pid, {:broadcast_event, state.name, event, data, ""})
+      end
+
+      # Then crash
+      raise "Intentional crash"
+    end
+  end
+
   # Mock judge for testing
   defmodule MockJudge do
     @behaviour ExEval.Judge
@@ -118,13 +186,14 @@ defmodule ExEval.BroadcasterTest do
         ])
         |> ExEval.put_response_fn(fn _input -> "response" end)
         |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+        |> ExEval.put_reporter(SilentReporter)
 
       %{config: config, broadcaster_name: broadcaster_name}
     end
 
     test "broadcasts evaluation lifecycle events", %{config: config, broadcaster_name: name} do
-      # Run evaluation synchronously
-      _results = ExEval.run(config, async: false)
+      # Run evaluation synchronously and capture all log output
+      _results = run_with_captured_logs(config, async: false)
 
       # Collect all broadcast events
       events = collect_broadcast_events(name, [])
@@ -150,7 +219,7 @@ defmodule ExEval.BroadcasterTest do
     end
 
     test "includes common fields in all events", %{config: config, broadcaster_name: name} do
-      _results = ExEval.run(config, async: false)
+      _results = run_with_captured_logs(config, async: false)
 
       events = collect_broadcast_events(name, [])
 
@@ -162,28 +231,38 @@ defmodule ExEval.BroadcasterTest do
     end
 
     test "handles broadcaster initialization failure gracefully" do
-      config =
-        ExEval.new()
-        |> ExEval.put_broadcaster(FailingBroadcaster)
-        |> ExEval.put_dataset([%{input: "test", judge_prompt: "test"}])
-        |> ExEval.put_response_fn(fn _input -> "response" end)
-        |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+      capture_log([level: :all], fn ->
+        config =
+          ExEval.new()
+          |> ExEval.put_broadcaster(FailingBroadcaster)
+          |> ExEval.put_dataset([%{input: "test", judge_prompt: "test"}])
+          |> ExEval.put_response_fn(fn _input -> "response" end)
+          |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+          |> ExEval.put_reporter(SilentReporter)
 
-      # Should complete successfully even with broadcaster failure
-      results = ExEval.run(config, async: false)
-      assert results.status == :completed
+        # Should complete successfully even with broadcaster failure
+        results = run_with_captured_logs(config, async: false)
+        assert results.status == :completed
+      end)
     end
 
     test "isolates broadcaster errors from evaluation" do
+      test_pid = self()
+      completion_name = "completion_#{:rand.uniform(10000)}"
+
       config =
         ExEval.new()
-        |> ExEval.put_broadcaster(CrashingBroadcaster)
+        |> ExEval.put_broadcasters([
+          {CrashingBroadcaster, []},
+          {TestBroadcaster, test_pid: test_pid, name: completion_name}
+        ])
         |> ExEval.put_dataset([%{input: "test", judge_prompt: "test"}])
         |> ExEval.put_response_fn(fn _input -> "response" end)
         |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+        |> ExEval.put_reporter(SilentReporter)
 
       # Should complete successfully even with broadcaster crashes
-      results = ExEval.run(config, async: false)
+      results = run_with_captured_logs_and_wait(config, [async: false], completion_name)
       assert results.status == :completed
     end
   end
@@ -206,6 +285,7 @@ defmodule ExEval.BroadcasterTest do
         ])
         |> ExEval.put_response_fn(fn _input -> "response" end)
         |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+        |> ExEval.put_reporter(SilentReporter)
 
       %{
         config: config,
@@ -219,7 +299,7 @@ defmodule ExEval.BroadcasterTest do
       broadcaster1_name: name1,
       broadcaster2_name: name2
     } do
-      _results = ExEval.run(config, async: false)
+      _results = run_with_captured_logs(config, async: false)
 
       events1 = collect_broadcast_events(name1, [])
       events2 = collect_broadcast_events(name2, [])
@@ -238,29 +318,32 @@ defmodule ExEval.BroadcasterTest do
     end
 
     test "handles partial broadcaster failures in multi-broadcaster setup" do
-      test_pid = self()
-      working_name = "working_#{:rand.uniform(10000)}"
+      capture_log([level: :all], fn ->
+        test_pid = self()
+        working_name = "working_#{:rand.uniform(10000)}"
 
-      config =
-        ExEval.new()
-        |> ExEval.put_broadcasters([
-          {TestBroadcaster, test_pid: test_pid, name: working_name},
-          # This will fail to initialize
-          {FailingBroadcaster},
-          # This will crash on broadcast
-          {CrashingBroadcaster}
-        ])
-        |> ExEval.put_dataset([%{input: "test", judge_prompt: "test"}])
-        |> ExEval.put_response_fn(fn _input -> "response" end)
-        |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+        config =
+          ExEval.new()
+          |> ExEval.put_broadcasters([
+            {TestBroadcaster, test_pid: test_pid, name: working_name},
+            # This will fail to initialize
+            {FailingBroadcaster, []},
+            # This will crash on broadcast
+            {CrashingBroadcaster, []}
+          ])
+          |> ExEval.put_dataset([%{input: "test", judge_prompt: "test"}])
+          |> ExEval.put_response_fn(fn _input -> "response" end)
+          |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+          |> ExEval.put_reporter(SilentReporter)
 
-      # Should complete successfully even with some broadcaster failures
-      results = ExEval.run(config, async: false)
-      assert results.status == :completed
+        # Should complete successfully even with some broadcaster failures
+        results = run_with_captured_logs_and_wait(config, [async: false], working_name)
+        assert results.status == :completed
 
-      # The working broadcaster should still receive events
-      events = collect_broadcast_events(working_name, [])
-      assert length(events) >= 1
+        # Now collect all events
+        events = collect_broadcast_events(working_name, [])
+        assert length(events) >= 1
+      end)
     end
 
     test "handles empty broadcaster list" do
@@ -270,9 +353,10 @@ defmodule ExEval.BroadcasterTest do
         |> ExEval.put_dataset([%{input: "test", judge_prompt: "test"}])
         |> ExEval.put_response_fn(fn _input -> "response" end)
         |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+        |> ExEval.put_reporter(SilentReporter)
 
       # Should complete successfully with empty broadcaster list
-      results = ExEval.run(config, async: false)
+      results = run_with_captured_logs(config, async: false)
       assert results.status == :completed
     end
   end
@@ -329,12 +413,13 @@ defmodule ExEval.BroadcasterTest do
         ])
         |> ExEval.put_response_fn(fn _input -> "response" end)
         |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+        |> ExEval.put_reporter(SilentReporter)
 
       %{config: config, broadcaster_name: broadcaster_name}
     end
 
     test "started event contains expected data", %{config: config, broadcaster_name: name} do
-      _results = ExEval.run(config, async: false)
+      _results = run_with_captured_logs(config, async: false)
 
       events = collect_broadcast_events(name, [])
       started_event = Enum.find(events, &(&1.event == :started))
@@ -346,7 +431,7 @@ defmodule ExEval.BroadcasterTest do
     end
 
     test "progress event contains expected data", %{config: config, broadcaster_name: name} do
-      _results = ExEval.run(config, async: false)
+      _results = run_with_captured_logs(config, async: false)
 
       events = collect_broadcast_events(name, [])
       progress_event = Enum.find(events, &(&1.event == :progress))
@@ -358,7 +443,7 @@ defmodule ExEval.BroadcasterTest do
     end
 
     test "completed event contains expected data", %{config: config, broadcaster_name: name} do
-      _results = ExEval.run(config, async: false)
+      _results = run_with_captured_logs(config, async: false)
 
       events = collect_broadcast_events(name, [])
       completed_event = Enum.find(events, &(&1.event == :completed))
@@ -385,9 +470,10 @@ defmodule ExEval.BroadcasterTest do
         |> ExEval.put_dataset([%{input: "test", judge_prompt: "test"}])
         |> ExEval.put_response_fn(fn _input -> "response" end)
         |> ExEval.put_judge(ExEval.BroadcasterTest.MockJudge)
+        |> ExEval.put_reporter(SilentReporter)
 
       # Run async
-      {:ok, run_id} = ExEval.run(config, async: true)
+      {:ok, run_id} = run_with_captured_logs(config, async: true)
 
       # Collect events with longer timeout for async runs
       events = collect_broadcast_events(broadcaster_name, [], 1000)

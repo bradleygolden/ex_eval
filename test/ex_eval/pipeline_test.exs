@@ -3,6 +3,7 @@ defmodule ExEval.PipelineTest do
 
   alias ExEval.Pipeline
   alias ExEval.Pipeline.{Preprocessors, ResponseProcessors, Postprocessors}
+  alias ExEval.SilentReporter
 
   describe "Preprocessors" do
     test "normalize_input/1 normalizes text" do
@@ -162,6 +163,7 @@ defmodule ExEval.PipelineTest do
         |> ExEval.put_response_fn(response_fn)
         |> ExEval.put_preprocessor(&Preprocessors.normalize_input/1)
         |> ExEval.put_postprocessor(&Postprocessors.normalize_to_score/1)
+        |> ExEval.put_reporter(SilentReporter)
 
       result = ExEval.run(config, async: false)
 

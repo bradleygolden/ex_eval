@@ -2,6 +2,9 @@ defmodule ExEval.Reporter.ConsoleTest do
   use ExUnit.Case
   import ExUnit.CaptureIO
 
+  # These tests specifically need to test the Console reporter
+  # so we don't use SilentReporter here
+
   describe "init/2" do
     test "initializes and prints header" do
       dataset1 = %{cases: [%{input: "test", judge_prompt: "test"}], response_fn: fn _ -> "ok" end}

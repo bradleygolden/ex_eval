@@ -268,7 +268,7 @@ defmodule ExEval.RunnerTest do
       registry: registry,
       supervisor: supervisor
     } do
-      config = ExEval.new()
+      config = ExEval.new() |> ExEval.put_reporter(SilentReporter)
 
       # Empty configuration should complete with no results
       result = ExEval.Runner.run_sync(config, registry: registry, supervisor: supervisor)

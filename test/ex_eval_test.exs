@@ -7,7 +7,7 @@ defmodule ExEvalTest do
       config = ExEval.new()
 
       assert config.judge == nil
-      assert config.reporter == ExEval.Reporter.Console
+      assert config.reporter == ExEval.SilentReporter
       assert config.max_concurrency == 10
       assert config.timeout == 30_000
       assert config.parallel == true
@@ -45,7 +45,7 @@ defmodule ExEvalTest do
     test "ignores unknown options" do
       config = ExEval.new(unknown_option: "value", another: 123)
       assert config.judge == nil
-      assert config.reporter == ExEval.Reporter.Console
+      assert config.reporter == ExEval.SilentReporter
     end
   end
 

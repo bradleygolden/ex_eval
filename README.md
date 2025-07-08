@@ -76,6 +76,83 @@ else
 end
 ```
 
+## LangChain Integration
+
+ExEval includes a LangChain integration that provides judge implementations for LLM providers. This integration supports multiple providers, evaluation modes, and features like JSON schema validation.
+
+### Installation
+
+Add the LangChain extension to your dependencies:
+
+```elixir
+def deps do
+  [
+    {:ex_eval, github: "bradleygolden/ex_eval", branch: "main"},
+    {:ex_eval_langchain, github: "bradleygolden/ex_eval_langchain", branch: "main"}
+  ]
+end
+```
+
+### Quick Example
+
+```elixir
+# Set your API key
+# export OPENAI_API_KEY="your-key-here"
+
+dataset = [
+  %{
+    input: "What is 2+2?",
+    judge_prompt: "Is the mathematical answer correct?",
+    category: :math
+  }
+]
+
+response_fn = fn input ->
+  case input do
+    "What is 2+2?" -> "2 + 2 = 4"
+    _ -> "I don't know"
+  end
+end
+
+# Run evaluation with LangChain judge
+{:ok, run_id} = 
+  ExEval.new()
+  |> ExEval.put_judge(ExEval.Langchain, model: "gpt-4o-mini")
+  |> ExEval.put_dataset(dataset)
+  |> ExEval.put_response_fn(response_fn)
+  |> ExEval.run()
+```
+
+### Supported Features
+
+- **Multiple Providers**: OpenAI, Anthropic, Google AI, Perplexity, Vertex AI
+- **Evaluation Modes**: Direct evaluation, Chain-of-Thought (CoT), Multi-Shot Learning
+- **JSON Schema Support**: Structured evaluation outputs with custom schemas
+- **Temperature Control**: Fine-tune response randomness
+- **Custom System Prompts**: Tailor judge behavior for your use case
+- **Streaming Responses**: Real-time evaluation feedback
+
+### Configuration Options
+
+```elixir
+ExEval.put_judge(ExEval.Langchain,
+  model: "gpt-4o-mini",              # Model to use
+  temperature: 0.0,                  # Deterministic output
+  evaluation_mode: :cot,             # Chain-of-thought reasoning
+  system_prompt: "You are an expert evaluator...",
+  json_schema: custom_schema,        # Structured output
+  provider: :openai                  # Explicit provider
+)
+```
+
+### Examples
+
+See the `examples/` directory for comprehensive examples:
+- `examples/langchain_basic.exs` - Basic usage patterns
+- `examples/langchain_advanced.exs` - Advanced features and integrations
+
+For complete documentation, see the [ExEval LangChain README](https://github.com/bradleygolden/ex_eval_langchain).
+
 ---
 
 # ExEval Developer Documentation
@@ -589,14 +666,13 @@ config = ExEval.put_broadcasters(config, [
 
 ### External Package Pattern
 
-The broadcaster system is designed for external packages:
+ExEval is designed for extensibility through external packages:
 
-- **ex_eval_pubsub** - Phoenix PubSub integration
-- **ex_eval_telemetry** - :telemetry event streaming  
-- **ex_eval_datadog** - Datadog metrics
-- **ex_eval_prometheus** - Prometheus metrics
+#### Official Integrations
 
-This keeps the core ExEval library focused and dependency-free while enabling rich integrations.
+- **[ex_eval_langchain](https://github.com/bradleygolden/ex_eval_langchain)** - Judge implementation with OpenAI, Anthropic, Google AI, and other LLM providers
+
+This architecture keeps the core ExEval library focused and dependency-free while enabling integrations through the ecosystem.
 
 ## Pipeline Processors
 
@@ -881,6 +957,21 @@ metrics = result.metrics
 ```
 
 ## Implementing Custom Components
+
+### Using External Judge Providers
+
+For convenience, you can use the LangChain integration instead of implementing custom judges:
+
+```elixir
+# ExEval LangChain - Judge with multiple LLM providers
+ExEval.put_judge(ExEval.Langchain, 
+  model: "gpt-4o-mini",
+  provider: :openai,
+  temperature: 0.0
+)
+```
+
+See the [ExEval LangChain documentation](https://raw.githubusercontent.com/bradleygolden/ex_eval_langchain/refs/heads/main/README.md) for complete details on supported providers, models, and configuration options.
 
 ### Custom Judge
 
